@@ -27,11 +27,15 @@
 	<true/>
 	<key>NSHumanReadableCopyright</key>
 	<string></string>
-	<!-- Sparkle in-app updates (see ADR-051). The EdDSA public key matches the private key in the
-	     release machine's login keychain; the feed is served by GitHub Pages from docs/. -->
+	<!-- Sparkle in-app updates (see ADR-051, ADR-114). The feed is served by GitHub Pages out of
+	     docs/ on the public repo. The EdDSA public key matches the private key in this machine's
+	     login keychain — shared with Millie, because Sparkle stores exactly one key per keychain
+	     and generating a second would overwrite the first. The key that shipped before this was
+	     upstream KeyType's, whose private half we do not hold: no update could ever have been
+	     signed for it. -->
 	<key>SUFeedURL</key>
-	<string></string>
+	<string>https://redclayai.github.io/glide/appcast.xml</string>
 	<key>SUPublicEDKey</key>
-	<string>jrJEixL9VTAptOmKf2JJ8aLoiMVV0bNcSNA1covfmtw=</string>
+	<string>nAEqm11bUO+gwO37HvV+FKvFuZ1x6bjW74ZFbxU7HGc=</string>
 </dict>
 </plist>

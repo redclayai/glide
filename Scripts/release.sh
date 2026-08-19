@@ -22,8 +22,12 @@ APP_NAME="Glide"
 SCHEME="KeyType"                      # the Xcode scheme still carries the upstream name
 TEAM_ID="3RPG92BQ9C"
 SIGN_IDENTITY="Developer ID Application: Red Clay AI, Inc (${TEAM_ID})"
-NOTARY_PROFILE="${GLIDE_NOTARY_PROFILE:-glide-notary}"
+# Any notarytool profile on this machine for team 3RPG92BQ9C works; millie-notary is the one that
+# already exists, since both apps ship under the same Developer ID.
+NOTARY_PROFILE="${GLIDE_NOTARY_PROFILE:-}"
 REPO="redclayai/glide"
+PAGES_URL="https://redclayai.github.io/glide"
+
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
@@ -32,6 +36,9 @@ BUILD_DIR="$ROOT_DIR/.build/release"
 ARCHIVE_PATH="$BUILD_DIR/$APP_NAME.xcarchive"
 EXPORT_DIR="$BUILD_DIR/export"
 DMG_STAGE="$BUILD_DIR/dmg"
+APPCAST_DIR="$BUILD_DIR/appcast"
+APPCAST_PATH="$ROOT_DIR/docs/appcast.xml"
+SPARKLE_BIN="$ROOT_DIR/.build/DerivedData-dev/SourcePackages/artifacts/sparkle/Sparkle/bin"
 
 SKIP_NOTARIZE=0
 PUBLISH=1
@@ -71,14 +78,25 @@ security find-identity -v -p codesigning | grep -q "$TEAM_ID" \
   || fail "no Developer ID certificate for team $TEAM_ID in the keychain"
 
 if [ "$SKIP_NOTARIZE" -eq 0 ]; then
-  xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1 || fail \
-"no notarytool keychain profile '$NOTARY_PROFILE'. Create it once with:
+  if [ -z "$NOTARY_PROFILE" ]; then
+    for candidate in glide-notary millie-notary; do
+      if xcrun notarytool history --keychain-profile "$candidate" >/dev/null 2>&1; then
+        NOTARY_PROFILE="$candidate"
+        break
+      fi
+    done
+  fi
+  [ -n "$NOTARY_PROFILE" ] || fail \
+"no notarytool keychain profile found (tried glide-notary, millie-notary). Create one with:
 
-  xcrun notarytool store-credentials $NOTARY_PROFILE \\
+  xcrun notarytool store-credentials glide-notary \\
     --apple-id <your-apple-id> --team-id $TEAM_ID --password <app-specific-password>
 
 or re-run with --skip-notarize to produce a signed but un-notarized DMG (Gatekeeper will warn on
 any Mac other than this one)."
+  xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1 \
+    || fail "notarytool profile '$NOTARY_PROFILE' exists but is not usable"
+  step "Notarizing with profile '$NOTARY_PROFILE'"
 fi
 
 # MARK: - Build
@@ -169,10 +187,41 @@ fi
 
 step "Built $(basename "$DMG_PATH") ($(du -h "$DMG_PATH" | cut -f1))"
 
+# MARK: - Appcast
+
+# Sparkle checks this feed to find updates, and verifies each download against the EdDSA signature
+# generate_appcast writes here. The existing feed is copied in first so past releases survive:
+# generate_appcast reuses an appcast it finds in the archives directory rather than starting over.
+step "Updating the appcast"
+rm -rf "$APPCAST_DIR"
+mkdir -p "$APPCAST_DIR"
+cp "$DMG_PATH" "$APPCAST_DIR/"
+if [ -f "$APPCAST_PATH" ]; then cp "$APPCAST_PATH" "$APPCAST_DIR/appcast.xml"; fi
+
+[ -x "$SPARKLE_BIN/generate_appcast" ] || fail \
+"Sparkle's generate_appcast is missing at $SPARKLE_BIN — build the app once so SwiftPM fetches it"
+
+"$SPARKLE_BIN/generate_appcast" \
+  --download-url-prefix "https://github.com/$REPO/releases/download/$TAG/" \
+  --link "https://github.com/$REPO" \
+  "$APPCAST_DIR"
+
+cp "$APPCAST_DIR/appcast.xml" "$APPCAST_PATH"
+grep -q "$TAG/$(basename "$DMG_PATH")" "$APPCAST_PATH" \
+  || fail "the appcast does not reference $TAG — Sparkle would not see this release"
+
 # MARK: - Publish
 
 if [ "$PUBLISH" -eq 1 ]; then
   step "Publishing $TAG to $REPO"
+  # The appcast has to be on the default branch *before* the tag is cut, so GitHub Pages serves a
+  # feed that matches the release the tag points at.
+  git -C "$ROOT_DIR" add "$APPCAST_PATH"
+  if ! git -C "$ROOT_DIR" diff --cached --quiet; then
+    git -C "$ROOT_DIR" commit -q -m "Appcast: $APP_NAME $VERSION"
+    git -C "$ROOT_DIR" push -q origin HEAD
+  fi
+
   git -C "$ROOT_DIR" tag -a "$TAG" -m "$APP_NAME $VERSION"
   git -C "$ROOT_DIR" push origin "$TAG"
 
@@ -187,6 +236,7 @@ Right-click the app → Open, or run \`xattr -dr com.apple.quarantine /Applicati
     --title "$APP_NAME $VERSION" \
     --notes "$NOTES"
   step "Published: https://github.com/$REPO/releases/tag/$TAG"
+  step "Appcast: $PAGES_URL/appcast.xml"
 else
   step "Skipped publishing (--no-publish). DMG at: $DMG_PATH"
 fi
