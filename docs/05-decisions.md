@@ -3364,3 +3364,60 @@ text. Both are now closed:
 - Consequences: Negative calibration results now raise the AppKit placement instead of lowering it,
   and positive results lower it. Font-size calibration remains unchanged. This fixes the shared
   calibration layer rather than adding app-specific vertical offsets.
+
+## ADR-104 — Replace the span behind the caret with a verified AX write, then one keystroke fallback
+
+- Date: 2026-08-19
+- Status: accepted
+- Context: The rewrite path has to *remove* text before it writes, which insertion never does. Three
+  mechanisms are available: setting `AXSelectedTextRange` + `AXSelectedText` on the focused element;
+  synthesizing ⇧← over the span and pasting on top of the selection; or synthesizing ⌫ over the span
+  and pasting at the caret. Only the first can be verified — the element can be re-read afterwards —
+  and it is refused outright by most web and Electron fields. The keystroke mechanisms are
+  fire-and-forget: nothing reports whether the selection actually took.
+- Decision: Try the accessibility write first, gated on `AXSelectedTextRange` being settable, the
+  caret being collapsed, and the text behind the caret still matching what the rewrite was computed
+  against; verify by re-reading the element and confirming the replacement landed. On any failure,
+  fall back to *exactly one* keystroke mechanism — shift-selection by default, deletion in apps that
+  already need chunked string injection. Never chain both.
+- Consequences: Native fields get a clean, flicker-free, single-undo replacement with no pasteboard
+  round-trip. Web and Electron fields get the paste path, inheriting every per-app insertion quirk
+  already tuned for completions. The one-keystroke-mechanism rule is the important half: a
+  shift-selection that only partially took, followed by a delete run, would eat text the user typed,
+  so a plan naming the AX mechanism as its fallback skips rather than writing over text it never
+  removed. Spans are capped at 256 keystrokes, and carry both UTF-16 and grapheme lengths because AX
+  addresses text in the former and arrow keys move by the latter.
+
+## ADR-105 — Proofread the word just finished, not the sentence being typed
+
+- Date: 2026-08-19
+- Status: accepted
+- Context: A rewrite competes with the user rather than assisting them if it fires while they are
+  still mid-thought, and a wrong rewrite costs far more than a missed one — the user already
+  committed to what they typed. `NSSpellChecker` is happy to offer "corrections" for names, jargon,
+  dialect, and fragments of identifiers.
+- Decision: Only the word immediately behind a committed boundary character is eligible. A word is a
+  run of letters and apostrophes; anything shorter than three characters, longer than thirty-two,
+  across a newline, in a secure field, or preceded by a gluing character (`.`, `/`, `@`, `_`, …) is
+  refused. A correction must be a single word, actually different, and not a bare case flip.
+- Consequences: Glide stays quiet through code, paths, emails, and version strings, and never
+  argues with a lowercase style. Two bugs this rules out were live: the prose gate never saw emails
+  or paths, because their separators are word boundaries too and only the trailing fragment ("com",
+  "swift") ever reached it; and treating the apostrophe as a boundary reduced "don't" to "t".
+  Separately, `NSSpellChecker.checkSpelling(startingAt:)` resumes at the word *after* the given
+  offset, so passing the target word's own start silently skipped it — the word is checked in
+  isolation instead.
+
+## ADR-106 — Completion wins Tab; the rewrite is only offered the key when completion is idle
+
+- Date: 2026-08-19
+- Status: accepted
+- Context: Both paths want the same accept key, and both are driven from the same session-level
+  CGEvent tap. Giving the rewrite its own hotkey would have avoided the contention, but a spelling
+  fix behind a chord is not a fix anyone uses.
+- Decision: `CompletionAcceptanceController` offers a matching accept key to the completion path
+  first and only consults `ProofreadController.canAcceptRewrite` when there is no completion to
+  accept. `ProofreadController` additionally clears itself whenever a completion becomes visible.
+- Consequences: One key, no arbitration logic, and completion behaviour is untouched — the rewrite
+  branch is unreachable while a candidate is on screen. The rewrite controller stays otherwise fully
+  isolated from `CompletionController`, as `SelectionRewrite` already is.

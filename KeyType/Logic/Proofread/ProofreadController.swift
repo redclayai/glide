@@ -45,15 +45,12 @@ final class ProofreadController {
     /// Injected by the app so the rewrite never competes with a visible completion for Tab.
     var isCompletionVisible: () -> Bool = { false }
 
-    private var pending: Pending?
+    /// The suggestion currently on screen. The context it was built from is deliberately not kept:
+    /// acceptance re-reads the live caret instead, because the user keeps typing while it is up.
+    private var pending: RewriteSuggestion?
     private var listenerToken: UUID?
     private var evaluationTask: Task<Void, Never>?
     private var isApplying = false
-
-    private struct Pending {
-        let suggestion: RewriteSuggestion
-        let context: TextFieldContext
-    }
 
     init(
         tracker: AccessibilityContextTracker,
@@ -90,8 +87,8 @@ final class ProofreadController {
     // MARK: - Pipeline
 
     private func handle(_ snapshot: FocusedFieldSnapshot?) {
-        // Our own replacement keystrokes generate snapshots. Ignore them, or applying a fix would
-        // immediately re-evaluate the text we just wrote.
+        // Snapshots produced by our own replacement keystrokes would otherwise re-evaluate the text
+        // we just wrote.
         guard !isApplying else { return }
 
         evaluationTask?.cancel()
@@ -133,7 +130,7 @@ final class ProofreadController {
         guard var placement = placementResolver.placement(for: context, mode: .correction) else { return }
         placement.presentation = .capsule
 
-        pending = Pending(suggestion: suggestion, context: context)
+        pending = suggestion
         overlay.show(
             text: Self.displayText(for: suggestion),
             font: .systemFont(ofSize: NSFont.systemFontSize),
@@ -164,26 +161,27 @@ final class ProofreadController {
         // Re-read the caret rather than trusting the snapshot the suggestion was built from; the AX
         // replacer verifies the span again before writing, and the keystroke fallbacks cannot.
         guard let live = tracker.currentSnapshot?.context,
-              live.beforeCursor.hasSuffix(pending.suggestion.span.original)
+              live.beforeCursor.hasSuffix(pending.span.original)
         else {
             log.debug("Rewrite abandoned: the text behind the caret changed before acceptance")
             return
         }
 
         let plan = replacer.planReplacement(
-            span: pending.suggestion.span,
-            replacement: pending.suggestion.replacement,
+            span: pending.span,
+            replacement: pending.replacement,
             context: live
         )
 
+        // Our own replacement keystrokes come back as snapshots; ignore them until the write is done.
         isApplying = true
         Task { [weak self] in
-            defer { Task { @MainActor in self?.isApplying = false } }
+            defer { self?.isApplying = false }
             do {
-                let outcome = try await self?.replacer.replace(plan: plan)
-                await self?.logOutcome(outcome)
+                guard let outcome = try await self?.replacer.replace(plan: plan) else { return }
+                self?.logOutcome(outcome)
             } catch {
-                await self?.logFailure(error)
+                self?.logFailure(error)
             }
         }
     }
@@ -196,14 +194,12 @@ final class ProofreadController {
         overlay.hide()
     }
 
-    private func logOutcome(_ outcome: ReplacementOutcome?) {
+    private func logOutcome(_ outcome: ReplacementOutcome) {
         switch outcome {
         case let .applied(mechanism):
             log.debug("Rewrite applied via \(String(describing: mechanism), privacy: .public)")
         case .skipped:
             log.debug("Rewrite skipped at the replacer")
-        case nil:
-            break
         }
     }
 

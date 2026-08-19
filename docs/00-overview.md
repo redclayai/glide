@@ -6,13 +6,18 @@
 > rather than initial construction. When you make a meaningful decision, append it to
 > `05-decisions.md`.
 
-## What KeyType is
+## What Glide is
 
-KeyType is an **open-source, on-device, system-wide tab-autocomplete utility for macOS**.
-It watches the focused text field across any app, predicts a short continuation at the
-cursor using a **local LLM**, and offers it as ghost text that the user accepts with **Tab**.
+Glide is an **on-device writing assistant for macOS** with two paths, both accepted with **Tab**:
 
-It is an **alternative** to the closed-source app *Cotypist*
+- **Complete** — watch the focused text field across any app, predict a short continuation at the
+  cursor with a **local LLM**, and offer it as ghost text. This is the inherited KeyType pipeline
+  and the bulk of this document.
+- **Rewrite** — when the user finishes a word, check it and offer a correction as a capsule under
+  the caret. Deterministic, on-device, no model. See *The rewrite path* below.
+
+Glide is a fork of **KeyType** by Xi Nai Lai (MIT), itself an alternative to the closed-source app
+*Cotypist*. Everything in docs 01–03 and 06–09 describes KeyType's completion pipeline unchanged.
 
 ### Core product principles (non-negotiable)
 
@@ -93,6 +98,27 @@ constrained decode → filter → overlay → Tab-insert all work against live m
   handling, insertion/overlay tuning, secure-field exclusion) (ADR-022+).
 - ✅ App target — background menu-bar / agent app with onboarding, in-app model download, Settings,
   encrypted local writing history, and local telemetry (ADR-005/023/034).
+
+### The rewrite path
+
+Added by Glide, and deliberately **isolated** from the completion pipeline — as `SelectionRewrite`
+already is — because a spell check has nothing to do with the KV-cache runtime and constrained
+decoding that `CompletionController` exists to manage.
+
+- ✅ `AutocompleteCore` — `CaretSpan` (a run of text ending at the caret, carrying both UTF-16 and
+  grapheme lengths), `RewriteSuggestion`, and the `SentenceRewriting` / `CaretSpanReplacing`
+  contracts.
+- ✅ `TextInsertion` — replacement as well as insertion: a verified accessibility write, then
+  exactly one keystroke fallback (shift-select-and-paste, or delete-and-paste). See ADR-104.
+- ✅ `MacContextCapture` — `AXCaretSpanReplacer`, the accessibility half of that ladder.
+- ✅ `Proofreading` — the deterministic engine: `NSSpellChecker` over the word just finished, behind
+  a stack of refusals (ADR-105). Swappable for Harper later; nothing above the protocol knows which
+  engine produced a suggestion.
+- ✅ App target — `ProofreadController` presents the capsule and applies the fix. Completion is
+  offered Tab first and the rewrite only sees the key when completion has nothing to accept
+  (ADR-106).
+
+Planned, not built: model-backed sentence rewrite, a tone palette, and reply assist.
 
 For the current set of open improvement themes (vs. the completed build milestones), see
 `04-roadmap.md`.
