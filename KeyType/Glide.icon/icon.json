@@ -23,7 +23,7 @@
       "layers": [
         {
           "blend-mode": "normal",
-          "image-name": "KeyType-Light.png",
+          "image-name": "Glide-Light.png",
           "name": "Light artwork",
           "opacity-specializations": [
             {
@@ -48,7 +48,7 @@
         },
         {
           "blend-mode": "normal",
-          "image-name": "KeyType-Dark.png",
+          "image-name": "Glide-Dark.png",
           "name": "Dark artwork",
           "opacity-specializations": [
             {
@@ -73,7 +73,7 @@
         },
         {
           "blend-mode": "normal",
-          "image-name": "KeyType-Clear.png",
+          "image-name": "Glide-Clear.png",
           "name": "Clear mono artwork",
           "opacity-specializations": [
             {
