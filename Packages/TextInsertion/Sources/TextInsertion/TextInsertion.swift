@@ -84,6 +84,9 @@ public protocol KeystrokeSynthesizing {
     func type(_ string: String)
     /// One backspace / forward-delete keystroke.
     func deleteBackward()
+    /// Extend the selection backward from the caret by `count` grapheme clusters (⇧← × count),
+    /// so a following paste replaces that span. Used by the rewrite path.
+    func selectBackward(count: Int)
 }
 
 /// Pasteboard seam. The implementation owns its own saved snapshot so callers only sequence
@@ -102,6 +105,7 @@ public final class CGEventKeystrokeSynthesizer: KeystrokeSynthesizing {
     private let source = CGEventSource(stateID: .combinedSessionState)
     private static let keyV: CGKeyCode = 9
     private static let keyDelete: CGKeyCode = 51
+    private static let keyLeftArrow: CGKeyCode = 123
 
     public init() {
         // Tag every event posted from this source so KeyType's own key taps can tell our synthesized
@@ -116,6 +120,13 @@ public final class CGEventKeystrokeSynthesizer: KeystrokeSynthesizing {
     }
 
     public func deleteBackward() { sendShortcut(Self.keyDelete, flags: []) }
+
+    public func selectBackward(count: Int) {
+        guard count > 0 else { return }
+        for _ in 0..<min(count, maximumReplacementKeystrokes) {
+            sendShortcut(Self.keyLeftArrow, flags: .maskShift)
+        }
+    }
 
     public func type(_ string: String) {
         guard !string.isEmpty else { return }

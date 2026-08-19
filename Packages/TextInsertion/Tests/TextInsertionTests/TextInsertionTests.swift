@@ -19,6 +19,7 @@ final class TextInsertionTests: XCTestCase {
         func pasteAndMatchStyle() { events.append("pasteAndMatchStyle") }
         func type(_ string: String) { events.append("type(\(string))") }
         func deleteBackward() { events.append("deleteBackward") }
+        func selectBackward(count: Int) { events.append("selectBackward(\(count))") }
         func save() { events.append("save") }
         func write(_ string: String) { events.append("write(\(string))") }
         func restore() { events.append("restore") }
