@@ -110,6 +110,7 @@ final class SettingsStore {
         static let fullPromptLoggingEnabled = "KeyType.settings.fullPromptLoggingEnabled"
         static let developerOverrideTuningEnabled = "KeyType.settings.developerOverrideTuningEnabled"
         static let selectionActionsEnabled = "KeyType.settings.selectionActionsEnabled"
+        static let proofreadEnabled = "Glide.settings.proofreadEnabled"
         static let completionLength = "KeyType.settings.completionLength"
         static let selectedModelFilename = "KeyType.settings.selectedModelFilename"
         static let perAppDisabled = "KeyType.settings.perAppDisabledBundleIDs"
@@ -155,6 +156,11 @@ final class SettingsStore {
     }
 
     /// Show the Polish / Grammar popover over selected text. ON by default.
+    /// Spelling/grammar rewrite of the word just typed, offered under the caret and applied with Tab.
+    var proofreadEnabled: Bool {
+        didSet { defaults.set(proofreadEnabled, forKey: Key.proofreadEnabled) }
+    }
+
     var selectionActionsEnabled: Bool {
         didSet { defaults.set(selectionActionsEnabled, forKey: Key.selectionActionsEnabled) }
     }
@@ -198,6 +204,7 @@ final class SettingsStore {
         self.developerOverrideTuningEnabled = defaults.bool(forKey: Key.developerOverrideTuningEnabled)
         // Default ON: absent key reads as enabled.
         self.selectionActionsEnabled = defaults.object(forKey: Key.selectionActionsEnabled) as? Bool ?? true
+        self.proofreadEnabled = defaults.object(forKey: Key.proofreadEnabled) as? Bool ?? true
         self.completionLength = (defaults.string(forKey: Key.completionLength))
             .flatMap(CompletionLength.init(rawValue:)) ?? .medium
         self.selectedModelFilename = defaults.string(forKey: Key.selectedModelFilename)

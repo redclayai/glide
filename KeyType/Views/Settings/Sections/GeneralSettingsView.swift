@@ -33,6 +33,13 @@ struct GeneralSettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("Rewrite") {
+                Toggle("Fix the word I just typed", isOn: $settings.proofreadEnabled)
+                Text("When you finish a word Glide misspells, the correction appears under the cursor — press Tab to take it. Runs entirely on device, and never fires while a completion is on screen.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Selection actions") {
                 Toggle("Polish & Grammar on selected text", isOn: $settings.selectionActionsEnabled)
                 Text("Select text, then press ⌃⌥P to polish or ⌃⌥G to fix grammar — works in any app. In apps that expose their selection (TextEdit, Mail, Pages…) a popover also appears with the same actions.")

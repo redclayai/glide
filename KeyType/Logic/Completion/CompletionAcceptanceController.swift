@@ -18,6 +18,9 @@ import os
 @MainActor
 final class CompletionAcceptanceController {
     weak var completionController: CompletionController?
+    /// The rewrite path. Offered the accept key only when the completion path has nothing to accept,
+    /// so completion always wins Tab and the two never fight over it.
+    weak var proofreadController: ProofreadController?
     /// Source of the configurable acceptance hotkeys. Read on every matching key-down.
     weak var settings: SettingsStore?
 
@@ -120,6 +123,14 @@ final class CompletionAcceptanceController {
                 controller.acceptNextWord()
             }
             return nil // consume — the key accepted the completion instead of its native action
+        }
+
+        // No completion to accept: offer the key to the rewrite path before treating it as a key
+        // that invalidates whatever is on screen.
+        if matchesFull || matchesWord,
+           let proofread = proofreadController, proofread.canAcceptRewrite {
+            proofread.acceptRewrite()
+            return nil // consume — the key applied the rewrite instead of its native action
         }
 
         // Any other key-down (including an accept key with nothing to accept) is about to mutate the

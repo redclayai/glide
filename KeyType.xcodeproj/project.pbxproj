@@ -20,6 +20,7 @@
 		4B5450012FC9600000000006 /* ConstrainedGeneration in Frameworks */ = {isa = PBXBuildFile; productRef = 4B5450012FC9600000000016 /* ConstrainedGeneration */; };
 		4B5450012FC9600000000007 /* CompletionUI in Frameworks */ = {isa = PBXBuildFile; productRef = 4B5450012FC9600000000017 /* CompletionUI */; };
 		4B5450012FC9600000000008 /* TextInsertion in Frameworks */ = {isa = PBXBuildFile; productRef = 4B5450012FC9600000000018 /* TextInsertion */; };
+		4B54500A2FC9600000000A01 /* Proofreading in Frameworks */ = {isa = PBXBuildFile; productRef = 4B54500A2FC9600000000A02 /* Proofreading */; };
 		4B5450012FC9600000000009 /* AppCompatibility in Frameworks */ = {isa = PBXBuildFile; productRef = 4B5450012FC9600000000019 /* AppCompatibility */; };
 		4B5450012FC960000000000A /* KeyTypeModuleGraph.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B5450012FC960000000000B /* KeyTypeModuleGraph.swift */; };
 		4B5450012FC9600000000030 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B5450012FC9600000000031 /* AppDelegate.swift */; };
@@ -42,6 +43,7 @@
 		4B5450012FC9600000000081 /* AcceptanceShortcut.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B5450012FC9600000000080 /* AcceptanceShortcut.swift */; };
 		4B5450012FC9600000000083 /* ModelSetupCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B5450012FC9600000000082 /* ModelSetupCoordinator.swift */; };
 		61696400000000000000A002 /* SelectionRewrite.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61696400000000000000A001 /* SelectionRewrite.swift */; };
+		4B54500A2FC9600000000B02 /* ProofreadController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B54500A2FC9600000000B01 /* ProofreadController.swift */; };
 		4B5450012FC9600000000085 /* KeyRecorderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B5450012FC9600000000084 /* KeyRecorderView.swift */; };
 		4B5450012FC9600000000091 /* OnboardingAndKeybindTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B5450012FC9600000000090 /* OnboardingAndKeybindTests.swift */; };
 		4B5450012FC96000000000A0 /* GeneralSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B5450012FC96000000000A1 /* GeneralSettingsView.swift */; };
@@ -116,6 +118,7 @@
 		4B5450012FC9600000000080 /* AcceptanceShortcut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcceptanceShortcut.swift; sourceTree = "<group>"; };
 		4B5450012FC9600000000082 /* ModelSetupCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelSetupCoordinator.swift; sourceTree = "<group>"; };
 		61696400000000000000A001 /* SelectionRewrite.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelectionRewrite.swift; sourceTree = "<group>"; };
+		4B54500A2FC9600000000B01 /* ProofreadController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProofreadController.swift; sourceTree = "<group>"; };
 		4B5450012FC9600000000084 /* KeyRecorderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyRecorderView.swift; sourceTree = "<group>"; };
 		4B5450012FC9600000000090 /* OnboardingAndKeybindTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingAndKeybindTests.swift; sourceTree = "<group>"; };
 		4B5450012FC96000000000A1 /* GeneralSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneralSettingsView.swift; sourceTree = "<group>"; };
@@ -173,6 +176,7 @@
 				4B5450012FC9600000000062 /* Personalization in Frameworks */,
 				4B5450012FC9600000000003 /* Prompting in Frameworks */,
 				4B5450012FC9600000000008 /* TextInsertion in Frameworks */,
+				4B54500A2FC9600000000A01 /* Proofreading in Frameworks */,
 				4B5450012FC9600000000005 /* TokenProfiles in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -276,6 +280,7 @@
 				4B5450012FC9600000000402 /* Developer */,
 				4B5450012FC9600000000102 /* Models */,
 				4B5450012FC96000000000C0 /* Permission */,
+				4B54500A2FC9600000000B03 /* Proofread */,
 				4B5450012FC9600000000103 /* Settings */,
 				4B5450012FC9600000000104 /* Telemetry */,
 				4B5450012FC9600000000212 /* Updates */,
@@ -333,6 +338,14 @@
 				61696400000000000000A001 /* SelectionRewrite.swift */,
 			);
 			path = Models;
+			sourceTree = "<group>";
+		};
+		4B54500A2FC9600000000B03 /* Proofread */ = {
+			isa = PBXGroup;
+			children = (
+				4B54500A2FC9600000000B01 /* ProofreadController.swift */,
+			);
+			path = Proofread;
 			sourceTree = "<group>";
 		};
 		4B5450012FC9600000000103 /* Settings */ = {
@@ -493,6 +506,7 @@
 				4B5450012FC9600000000061 /* Personalization */,
 				4B5450012FC9600000000013 /* Prompting */,
 				4B5450012FC9600000000018 /* TextInsertion */,
+				4B54500A2FC9600000000A02 /* Proofreading */,
 				4B5450012FC9600000000015 /* TokenProfiles */,
 			);
 			productName = KeyType;
@@ -585,6 +599,7 @@
 				4B5450012FC9600000000060 /* XCLocalSwiftPackageReference "Packages/Personalization" */,
 				4B5450012FC9600000000021 /* XCLocalSwiftPackageReference "Packages/Prompting" */,
 				4B5450012FC9600000000026 /* XCLocalSwiftPackageReference "Packages/TextInsertion" */,
+				4B54500A2FC9600000000A03 /* XCLocalSwiftPackageReference "Packages/Proofreading" */,
 				4B5450012FC9600000000023 /* XCLocalSwiftPackageReference "Packages/TokenProfiles" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -661,6 +676,7 @@
 				4B5450012FC9600000000081 /* AcceptanceShortcut.swift in Sources */,
 				4B5450012FC9600000000083 /* ModelSetupCoordinator.swift in Sources */,
 				61696400000000000000A002 /* SelectionRewrite.swift in Sources */,
+				4B54500A2FC9600000000B02 /* ProofreadController.swift in Sources */,
 				4B5450012FC9600000000085 /* KeyRecorderView.swift in Sources */,
 				4B5450012FC960000000000A /* KeyTypeModuleGraph.swift in Sources */,
 				4B5450012FC9600000000211 /* UpdaterController.swift in Sources */,
@@ -1051,6 +1067,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/TextInsertion;
 		};
+		4B54500A2FC9600000000A03 /* XCLocalSwiftPackageReference "Packages/Proofreading" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/Proofreading;
+		};
 		4B5450012FC9600000000027 /* XCLocalSwiftPackageReference "Packages/AppCompatibility" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/AppCompatibility;
@@ -1128,6 +1148,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 4B5450012FC9600000000026 /* XCLocalSwiftPackageReference "Packages/TextInsertion" */;
 			productName = TextInsertion;
+		};
+		4B54500A2FC9600000000A02 /* Proofreading */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4B54500A2FC9600000000A03 /* XCLocalSwiftPackageReference "Packages/Proofreading" */;
+			productName = Proofreading;
 		};
 		4B5450012FC9600000000019 /* AppCompatibility */ = {
 			isa = XCSwiftPackageProductDependency;

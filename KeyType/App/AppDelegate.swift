@@ -10,6 +10,8 @@ import AppCompatibility
 import MacContextCapture
 import ModelRuntime
 import Personalization
+import Proofreading
+import TextInsertion
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -45,6 +47,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// "Polish" / "Grammar" selection actions — a popover over selected text that rewrites it with
     /// the local model. Isolated from the completion pipeline (its own runtime). See SelectionRewrite.
     let selectionRewrite: SelectionRewriteController
+    /// Spelling/grammar rewrite of the word just typed, offered as a capsule under the caret and
+    /// applied with Tab. Isolated from the completion pipeline; see ProofreadController.
+    let proofread: ProofreadController
     private let acceptance = CompletionAcceptanceController()
     private lazy var developerOverridePanel = DeveloperOverridePanelController(
         settings: settings,
@@ -113,9 +118,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             modelFilenameProvider: { settings.selectedModelFilename ?? ModelContainer.defaultModelFilename },
             isEnabledProvider: { settings.selectionActionsEnabled }
         )
+        self.proofread = ProofreadController(
+            tracker: tracker,
+            proofreader: SystemProofreader(),
+            replacer: PasteboardTextReplacer(
+                planner: ReplacementPlanner(compatibilityStore: compatibilityStore),
+                spanReplacer: AXCaretSpanReplacer()
+            ),
+            compatibilityStore: compatibilityStore
+        )
         super.init()
         acceptance.completionController = completion
+        acceptance.proofreadController = proofread
         acceptance.settings = settings
+        // Completion owns Tab whenever it has something to accept; the rewrite is only offered the
+        // key when it does not.
+        proofread.isCompletionVisible = { [weak completion = self.completion] in
+            completion?.canAcceptCompletion ?? false
+        }
+        proofread.isEnabled = settings.proofreadEnabled
         // When a model finishes setup (GGUF + ACPF both present), make it the selected model and
         // reload the engine so the change takes effect without a relaunch.
         modelSetup.onModelReady = { [weak self] filename in
@@ -198,12 +219,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             historyRecorder.start()
             acceptance.start()
             selectionRewrite.start()
+            proofread.start()
         } else {
             contextCapture.stop()
             completion.stop()
             historyRecorder.stop()
             acceptance.stop()
             selectionRewrite.stop()
+            proofread.stop()
         }
         // OCR screen capture has its own opt-in switch and permission on top of Accessibility. Polled
         // here (1 Hz) so flipping the Settings toggle or granting Screen Recording takes effect within
@@ -336,6 +359,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         acceptance.stop()
         screenContext.stop()
         selectionRewrite.stop()
+        proofread.stop()
 
         NSApp.activate(ignoringOtherApps: true)
         // `begin` (not `runModal`) keeps the main run loop turning while the panel is up; combined
