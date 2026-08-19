@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- KeyType links the dynamic llama.cpp framework (ADR-007). With the hardened runtime on
+	     (ADR-005) the framework's signature won't match a Team-ID-only validation, so library
+	     validation must be relaxed for the app to load it. App Sandbox stays disabled. -->
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
+</dict>
+</plist>

@@ -1,0 +1,2 @@
+suite,model_identifier,model_filename,model_family,quantization,row_count,precision_when_shown,positive_coverage,wrong_show_rate,suppression_accuracy,quality_score,quality_score_total,p50_generation_ms,p95_generation_ms,p50_total_ms,p95_total_ms
+edge,Qwen3.5-2B-Base.i1-Q4_K_M,Qwen3.5-2B-Base.i1-Q4_K_M.gguf,qwen3-v151936,Q4_K_M,300,0.581395,0.357143,0.180000,0.344444,0.434333,130.300000,47.849041,86.156208,47.847000,85.621708

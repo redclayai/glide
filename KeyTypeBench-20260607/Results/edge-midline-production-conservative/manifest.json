@@ -1,0 +1,327 @@
+{
+  "aggregateCSVPath" : "\/Users\/bj\/Desktop\/Personal\/Development\/Xcode Apps\/Code\/Personal\/Projects\/KeyType\/KeyTypeBench-20260607\/Results\/edge-midline-production-conservative\/aggregate.csv",
+  "aggregateJSONPath" : "\/Users\/bj\/Desktop\/Personal\/Development\/Xcode Apps\/Code\/Personal\/Projects\/KeyType\/KeyTypeBench-20260607\/Results\/edge-midline-production-conservative\/aggregate.json",
+  "aggregates" : [
+    {
+      "byTag" : {
+        "abbreviation" : {
+          "p95TotalMs" : 55.857958,
+          "positiveCoverage" : 0,
+          "precisionWhenShown" : 0,
+          "qualityScore" : 0,
+          "rowCount" : 30,
+          "wrongShowRate" : 1
+        },
+        "after-cursor" : {
+          "p95TotalMs" : 49.594625,
+          "positiveCoverage" : 0,
+          "precisionWhenShown" : 0,
+          "qualityScore" : 0.016666666666666666,
+          "rowCount" : 60,
+          "wrongShowRate" : 0
+        },
+        "ai-chat" : {
+          "p95TotalMs" : 72.7675,
+          "positiveCoverage" : 0.3157894736842105,
+          "precisionWhenShown" : 0.46153846153846156,
+          "qualityScore" : 0.312,
+          "rowCount" : 25,
+          "wrongShowRate" : 0.28
+        },
+        "app-specific" : {
+          "p95TotalMs" : 0.000584,
+          "positiveCoverage" : 0,
+          "precisionWhenShown" : 0,
+          "qualityScore" : 1,
+          "rowCount" : 30,
+          "wrongShowRate" : 0
+        },
+        "browser-web-form" : {
+          "p95TotalMs" : 86.719083,
+          "positiveCoverage" : 0.3,
+          "precisionWhenShown" : 0.46153846153846156,
+          "qualityScore" : 0.3115384615384615,
+          "rowCount" : 78,
+          "wrongShowRate" : 0.2692307692307692
+        },
+        "cc-by-sa" : {
+          "p95TotalMs" : 88.321625,
+          "positiveCoverage" : 0.38562091503267976,
+          "precisionWhenShown" : 0.6781609195402298,
+          "qualityScore" : 0.3911764705882354,
+          "rowCount" : 204,
+          "wrongShowRate" : 0.13725490196078433
+        },
+        "cli" : {
+          "p95TotalMs" : 0.002125,
+          "positiveCoverage" : 0,
+          "precisionWhenShown" : 0,
+          "qualityScore" : 0.967741935483871,
+          "rowCount" : 31,
+          "wrongShowRate" : 0
+        },
+        "code" : {
+          "p95TotalMs" : 67.409292,
+          "positiveCoverage" : 0.25,
+          "precisionWhenShown" : 0.32142857142857145,
+          "qualityScore" : 0.30000000000000004,
+          "rowCount" : 38,
+          "wrongShowRate" : 0.5
+        },
+        "code-comments" : {
+          "p95TotalMs" : 67.409292,
+          "positiveCoverage" : 0.25,
+          "precisionWhenShown" : 0.32142857142857145,
+          "qualityScore" : 0.30000000000000004,
+          "rowCount" : 38,
+          "wrongShowRate" : 0.5
+        },
+        "comment" : {
+          "p95TotalMs" : 54.1065,
+          "positiveCoverage" : 0.23333333333333334,
+          "precisionWhenShown" : 0.28,
+          "qualityScore" : 0.2833333333333333,
+          "rowCount" : 30,
+          "wrongShowRate" : 0.6
+        },
+        "comments" : {
+          "p95TotalMs" : 67.409292,
+          "positiveCoverage" : 0.25,
+          "precisionWhenShown" : 0.32142857142857145,
+          "qualityScore" : 0.30000000000000004,
+          "rowCount" : 38,
+          "wrongShowRate" : 0.5
+        },
+        "documentation" : {
+          "p95TotalMs" : 49.678167,
+          "positiveCoverage" : 0.5,
+          "precisionWhenShown" : 1,
+          "qualityScore" : 0.9484848484848485,
+          "rowCount" : 33,
+          "wrongShowRate" : 0
+        },
+        "duplication-trap" : {
+          "p95TotalMs" : 49.594625,
+          "positiveCoverage" : 0,
+          "precisionWhenShown" : 0,
+          "qualityScore" : 0.016666666666666666,
+          "rowCount" : 60,
+          "wrongShowRate" : 0
+        },
+        "edge" : {
+          "p95TotalMs" : 85.621708,
+          "positiveCoverage" : 0.35714285714285715,
+          "precisionWhenShown" : 0.5813953488372093,
+          "qualityScore" : 0.4343333333333326,
+          "rowCount" : 300,
+          "wrongShowRate" : 0.18
+        },
+        "email" : {
+          "p95TotalMs" : 88.54825,
+          "positiveCoverage" : 0.40540540540540543,
+          "precisionWhenShown" : 0.7894736842105263,
+          "qualityScore" : 0.37777777777777777,
+          "rowCount" : 54,
+          "wrongShowRate" : 0.07407407407407407
+        },
+        "encyclopedic" : {
+          "p95TotalMs" : 88.321625,
+          "positiveCoverage" : 0.38562091503267976,
+          "precisionWhenShown" : 0.6781609195402298,
+          "qualityScore" : 0.3911764705882354,
+          "rowCount" : 204,
+          "wrongShowRate" : 0.13725490196078433
+        },
+        "fim" : {
+          "p95TotalMs" : 59.219709,
+          "positiveCoverage" : 0.013333333333333334,
+          "precisionWhenShown" : 1,
+          "qualityScore" : 0.30933333333333374,
+          "rowCount" : 75,
+          "wrongShowRate" : 0
+        },
+        "hf-dataset" : {
+          "p95TotalMs" : 88.321625,
+          "positiveCoverage" : 0.38562091503267976,
+          "precisionWhenShown" : 0.6781609195402298,
+          "qualityScore" : 0.3911764705882354,
+          "rowCount" : 204,
+          "wrongShowRate" : 0.13725490196078433
+        },
+        "local" : {
+          "p95TotalMs" : 74.137125,
+          "positiveCoverage" : 0.3333333333333333,
+          "precisionWhenShown" : 0.46153846153846156,
+          "qualityScore" : 0.37499999999999994,
+          "rowCount" : 20,
+          "wrongShowRate" : 0.35
+        },
+        "messaging-chat" : {
+          "p95TotalMs" : 104.539791,
+          "positiveCoverage" : 0.5161290322580645,
+          "precisionWhenShown" : 1,
+          "qualityScore" : 0.5694444444444444,
+          "rowCount" : 36,
+          "wrongShowRate" : 0
+        },
+        "mid-line" : {
+          "p95TotalMs" : 59.219709,
+          "positiveCoverage" : 0.013333333333333334,
+          "precisionWhenShown" : 1,
+          "qualityScore" : 0.30933333333333374,
+          "rowCount" : 75,
+          "wrongShowRate" : 0
+        },
+        "mid-word" : {
+          "p95TotalMs" : 111.408625,
+          "positiveCoverage" : 0.8933333333333333,
+          "precisionWhenShown" : 0.9178082191780822,
+          "qualityScore" : 0.9013333333333332,
+          "rowCount" : 75,
+          "wrongShowRate" : 0.08
+        },
+        "notes" : {
+          "p95TotalMs" : 74.137125,
+          "positiveCoverage" : 0.5,
+          "precisionWhenShown" : 1,
+          "qualityScore" : 0.65,
+          "rowCount" : 2,
+          "wrongShowRate" : 0
+        },
+        "notes-docs" : {
+          "p95TotalMs" : 108.452459,
+          "positiveCoverage" : 0.4074074074074074,
+          "precisionWhenShown" : 0.7857142857142857,
+          "qualityScore" : 0.4184210526315789,
+          "rowCount" : 38,
+          "wrongShowRate" : 0.07894736842105263
+        },
+        "numbered-list" : {
+          "p95TotalMs" : 55.857958,
+          "positiveCoverage" : 0,
+          "precisionWhenShown" : 0,
+          "qualityScore" : 0,
+          "rowCount" : 30,
+          "wrongShowRate" : 1
+        },
+        "open-source" : {
+          "p95TotalMs" : 50.712083,
+          "positiveCoverage" : 0.2,
+          "precisionWhenShown" : 0.25,
+          "qualityScore" : 0.25999999999999995,
+          "rowCount" : 20,
+          "wrongShowRate" : 0.6
+        },
+        "policy" : {
+          "p95TotalMs" : 0.000584,
+          "positiveCoverage" : 0,
+          "precisionWhenShown" : 0,
+          "qualityScore" : 1,
+          "rowCount" : 30,
+          "wrongShowRate" : 0
+        },
+        "prompt" : {
+          "p95TotalMs" : 72.7675,
+          "positiveCoverage" : 0.3157894736842105,
+          "precisionWhenShown" : 0.46153846153846156,
+          "qualityScore" : 0.312,
+          "rowCount" : 25,
+          "wrongShowRate" : 0.28
+        },
+        "public-domain-dedication" : {
+          "p95TotalMs" : 72.7675,
+          "positiveCoverage" : 0.3157894736842105,
+          "precisionWhenShown" : 0.46153846153846156,
+          "qualityScore" : 0.312,
+          "rowCount" : 25,
+          "wrongShowRate" : 0.28
+        },
+        "real" : {
+          "p95TotalMs" : 85.621708,
+          "positiveCoverage" : 0.35714285714285715,
+          "precisionWhenShown" : 0.5813953488372093,
+          "qualityScore" : 0.4343333333333326,
+          "rowCount" : 300,
+          "wrongShowRate" : 0.18
+        },
+        "suppress" : {
+          "p95TotalMs" : 0.000584,
+          "positiveCoverage" : 0,
+          "precisionWhenShown" : 0,
+          "qualityScore" : 1,
+          "rowCount" : 30,
+          "wrongShowRate" : 0
+        },
+        "swift" : {
+          "p95TotalMs" : 67.409292,
+          "positiveCoverage" : 0.25,
+          "precisionWhenShown" : 0.32142857142857145,
+          "qualityScore" : 0.30000000000000004,
+          "rowCount" : 38,
+          "wrongShowRate" : 0.5
+        },
+        "terminal" : {
+          "p95TotalMs" : 0.002125,
+          "positiveCoverage" : 0,
+          "precisionWhenShown" : 0,
+          "qualityScore" : 0.967741935483871,
+          "rowCount" : 31,
+          "wrongShowRate" : 0
+        },
+        "wikipedia" : {
+          "p95TotalMs" : 88.321625,
+          "positiveCoverage" : 0.38562091503267976,
+          "precisionWhenShown" : 0.6781609195402298,
+          "qualityScore" : 0.3911764705882354,
+          "rowCount" : 204,
+          "wrongShowRate" : 0.13725490196078433
+        },
+        "xcode" : {
+          "p95TotalMs" : 0.000375,
+          "positiveCoverage" : 0,
+          "precisionWhenShown" : 0,
+          "qualityScore" : 1,
+          "rowCount" : 1,
+          "wrongShowRate" : 0
+        }
+      },
+      "correctInsertCount" : 75,
+      "correctSuppressionCount" : 31,
+      "modelFamily" : "qwen3-v151936",
+      "modelFilename" : "Qwen3.5-2B-Base.i1-Q4_K_M.gguf",
+      "modelIdentifier" : "Qwen3.5-2B-Base.i1-Q4_K_M",
+      "negativeCount" : 90,
+      "p50GenerationMs" : 47.849041,
+      "p50TotalMs" : 47.847,
+      "p95GenerationMs" : 86.156208,
+      "p95TotalMs" : 85.621708,
+      "positiveCount" : 210,
+      "positiveCoverage" : 0.35714285714285715,
+      "positiveSuppressionCount" : 81,
+      "precisionWhenShown" : 0.5813953488372093,
+      "qualityScore" : 0.4343333333333326,
+      "qualityScoreTotal" : 130.29999999999978,
+      "quantization" : "Q4_K_M",
+      "rowCount" : 300,
+      "schemaVersion" : 1,
+      "shownCount" : 129,
+      "suite" : "edge",
+      "suppressionAccuracy" : 0.34444444444444444,
+      "suppressionReasonHistogram" : {
+        "duplicatesAfterCursor" : 1,
+        "insertionUnsafe" : 24,
+        "lowConfidenceMidLine" : 107,
+        "noCandidate" : 7,
+        "numericMidWordStem" : 2,
+        "tabShortcutsDisabled" : 30
+      },
+      "wrongShowRate" : 0.18,
+      "wrongShownCount" : 54
+    }
+  ],
+  "generatedAt" : "2026-06-07T09:04:34Z",
+  "releaseBuildRequiredForLatency" : true,
+  "rowResultsPath" : "\/Users\/bj\/Desktop\/Personal\/Development\/Xcode Apps\/Code\/Personal\/Projects\/KeyType\/KeyTypeBench-20260607\/Results\/edge-midline-production-conservative\/rows.jsonl",
+  "schemaVersion" : 1,
+  "suite" : "edge"
+}
