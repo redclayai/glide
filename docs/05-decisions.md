@@ -3421,3 +3421,42 @@ text. Both are now closed:
 - Consequences: One key, no arbitration logic, and completion behaviour is untouched — the rewrite
   branch is unreachable while a candidate is on screen. The rewrite controller stays otherwise fully
   isolated from `CompletionController`, as `SelectionRewrite` already is.
+
+## ADR-107 — Offer a model grammar fix at sentence end, gated on it being a correction
+
+- Date: 2026-08-19
+- Status: accepted
+- Context: The spell pass fixes words the dictionary knows are wrong; it says nothing about "he don't
+  agree" or "their going to send". That needs the model. But a model asked to improve a sentence
+  will re-voice it, answer it, wrap it in quotes, prepend "Corrected:", or invent a second sentence —
+  and the user has already committed to what they typed, so a confident rewrite is worse than
+  silence.
+- Decision: Trigger only when a sentence terminator has been committed (`TrailingSentenceScanner`),
+  debounce 400 ms before the call so a typist who keeps going cancels it, then treat the output as
+  untrusted: unwrap the packaging, and accept only if it is one line, one sentence, within 0.6–1.6×
+  the original length, and within a 0.34 Levenshtein edit ratio. Anything beyond that is a rewrite,
+  which is the Polish feature the user did not ask for here. `LayeredRewriter` asks the spell pass
+  first, so the model is only consulted where the cheap, certain source had nothing to say.
+- Consequences: Measured on the shipped model, a rewrite costs **77–93 ms**, so the perceived delay
+  is the debounce rather than inference. Sentences are capped at 140 characters — under the
+  256-keystroke replacement bound, and short enough to render in full in the capsule, because asking
+  someone to accept text they cannot fully read is worse than not offering it. The gate rejects a
+  correct sentence unchanged, which is the common case.
+
+## ADR-108 — Prompt the inline grammar pass few-shot, not by instruction
+
+- Date: 2026-08-19
+- Status: accepted
+- Context: `RewriteService` prompts with ChatML instructions, while its own header notes the catalog
+  model is a *base* model that should be primed with examples. The code had drifted from the
+  comment. Measured against `Qwen3.5-2B-Base` on ungrammatical sentences, the difference is not
+  subtle: instructed, "Their going to send us the files tomorrow." became "**Their** are going to
+  send us the files tomorrow." — the homophone left in place and a verb error added — where three
+  worked examples produce "**They are** going to send us the files tomorrow." Instruction prompting
+  also re-voices rather than corrects: "He don't agree with it." → "He **disagrees** with it."
+- Decision: Add a `.inlineGrammar` style carrying a three-example few-shot prompt, and stop
+  generation at the first newline since a pattern-continuation has no end-of-turn marker to hit.
+  The existing `.grammar` style used by ⌃⌥G is left alone.
+- Consequences: The inline pass gets materially better corrections and stops generating as soon as
+  the answer ends instead of running out the token budget. The selection actions keep their current
+  behaviour; if they turn out to have the same weakness, they can move to the same prompt.

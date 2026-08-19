@@ -35,7 +35,12 @@ struct GeneralSettingsView: View {
 
             Section("Rewrite") {
                 Toggle("Fix the word I just typed", isOn: $settings.proofreadEnabled)
-                Text("When you finish a word Glide misspells, the correction appears under the cursor — press Tab to take it. Runs entirely on device, and never fires while a completion is on screen.")
+                Text("When you finish a misspelled word, the correction appears under the cursor — press Tab to take it. Instant, offline, no model.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                Toggle("Fix the grammar of the sentence I just finished", isOn: $settings.aiGrammarEnabled)
+                Text("At the end of a sentence, the local model proposes a grammar fix the same way. Only runs if you pause, only when the spelling pass found nothing, and only if the result is a correction rather than a rewrite.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }

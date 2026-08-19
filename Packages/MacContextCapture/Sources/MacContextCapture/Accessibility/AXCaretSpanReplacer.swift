@@ -18,7 +18,7 @@
 //       eat characters.
 //
 //  After writing, the element is re-read and the replacement confirmed. Any failure returns false
-//  so `PasteboardTextReplacer` falls back to keystrokes. See ADR-100.
+//  so `PasteboardTextReplacer` falls back to keystrokes. See ADR-104.
 //
 
 import AppKit

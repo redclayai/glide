@@ -113,14 +113,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             settings: settings,
             compatibilityStore: compatibilityStore
         )
+        // One llama context serves both model-backed rewrites: ⌃⌥P/⌃⌥G on a selection, and the
+        // inline grammar pass. The actor serializes them, so they can never run an eval at once.
+        let rewriteService = RewriteService()
+        let modelFilename = { settings.selectedModelFilename ?? ModelContainer.defaultModelFilename }
         self.selectionRewrite = SelectionRewriteController(
             tracker: tracker,
-            modelFilenameProvider: { settings.selectedModelFilename ?? ModelContainer.defaultModelFilename },
+            service: rewriteService,
+            modelFilenameProvider: modelFilename,
             isEnabledProvider: { settings.selectionActionsEnabled }
         )
         self.proofread = ProofreadController(
             tracker: tracker,
-            proofreader: SystemProofreader(),
+            // Cheap and certain first: a spell fix is instant and offline, so the model is only
+            // asked about sentences the spell checker had nothing to say about.
+            proofreader: LayeredRewriter(sources: [
+                SystemProofreader(),
+                ModelSentenceRewriter(
+                    service: rewriteService,
+                    modelFilenameProvider: modelFilename,
+                    isEnabledProvider: { settings.aiGrammarEnabled }
+                )
+            ]),
             replacer: PasteboardTextReplacer(
                 planner: ReplacementPlanner(compatibilityStore: compatibilityStore),
                 spanReplacer: AXCaretSpanReplacer()

@@ -51,6 +51,10 @@ final class ProofreadController {
     private var listenerToken: UUID?
     private var evaluationTask: Task<Void, Never>?
     private var isApplying = false
+    /// Text the current suggestion was computed from. AX emits several snapshots per keystroke
+    /// (caret moves, window changes, value echoes); without this the model would be asked the same
+    /// question repeatedly and the capsule would flicker off and back on between answers.
+    private var lastEvaluatedText: String?
 
     init(
         tracker: AccessibilityContextTracker,
@@ -81,6 +85,7 @@ final class ProofreadController {
             tracker.removeListener(listenerToken)
         }
         listenerToken = nil
+        lastEvaluatedText = nil
         dismiss()
     }
 
@@ -115,8 +120,12 @@ final class ProofreadController {
             return
         }
 
-        // Nothing pending survives a context change; the span it referred to may be gone.
+        // A snapshot that changed nothing about the text leaves the current suggestion alone.
+        if lastEvaluatedText == context.beforeCursor, pending != nil { return }
+
+        // Nothing pending survives a real context change; the span it referred to may be gone.
         dismiss()
+        lastEvaluatedText = context.beforeCursor
 
         evaluationTask = Task { [weak self] in
             guard let self else { return }
@@ -139,8 +148,10 @@ final class ProofreadController {
         log.debug("Offering rewrite: \(suggestion.span.original, privacy: .private) → \(suggestion.replacement, privacy: .private)")
     }
 
-    /// The capsule shows the corrected word alone. The replacement carries the trailing boundary so
-    /// the span ends at the caret, but rendering "receive " with its space reads as a typo of its own.
+    /// The capsule shows the replacement as it will land, minus the trailing boundary the span
+    /// carries so it ends at the caret — rendering "receive " with its space reads as a typo of its
+    /// own. Nothing is truncated: the sentence scanner is bounded so a model rewrite always fits,
+    /// because accepting text you cannot fully read is worse than not being offered it.
     static func displayText(for suggestion: RewriteSuggestion) -> String {
         suggestion.replacement.trimmingCharacters(in: .whitespaces)
     }

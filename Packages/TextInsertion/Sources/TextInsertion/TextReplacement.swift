@@ -17,7 +17,7 @@
 //
 //  The ladder tries AX first and then *exactly one* keystroke mechanism. Chaining both keystroke
 //  paths is unsafe: a shift-selection that only partially took, followed by a delete run, eats
-//  text the user typed. See ADR-100.
+//  text the user typed. See ADR-104.
 //
 
 import AppCompatibility
@@ -30,10 +30,6 @@ public enum ReplacementMechanism: Equatable {
     case shiftArrowSelection
     case backspaceDeletion
 }
-
-/// Upper bound on the span a single replacement may cover. A rewrite is a sentence-scale edit;
-/// anything longer is a bug upstream, and synthesizing hundreds of keystrokes is slow and risky.
-public let maximumReplacementKeystrokes = 256
 
 public struct ReplacementPlan: Equatable {
     /// The text being replaced, ending at the caret.

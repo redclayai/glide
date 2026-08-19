@@ -11,6 +11,11 @@
 
 import Foundation
 
+/// Upper bound on the span a single replacement may cover. A rewrite is a sentence-scale edit;
+/// anything longer is a bug upstream, and the keystroke fallbacks cost one synthesized key per
+/// grapheme, so a longer span could be proposed but never applied.
+public let maximumReplacementKeystrokes = 256
+
 /// The stretch of text a rewrite intends to replace, anchored to end at the caret.
 public struct CaretSpan: Equatable {
     /// The text currently in the field, ending at the caret.
