@@ -46,8 +46,13 @@ final class ProofreadController {
         }
     }
 
-    /// Injected by the app so the rewrite never competes with a visible completion for Tab.
+    /// Injected by the app so the rewrite can tell whether completion currently owns the caret.
     var isCompletionVisible: () -> Bool = { false }
+    /// Clears a visible completion. Used only when a model grammar fix is ready: by then the user
+    /// has paused for over a second, which says they have stopped composing, and a correction to
+    /// what they wrote beats a guess at what comes next. The completion re-offers itself the moment
+    /// they type again.
+    var dismissCompletion: () -> Void = {}
 
     /// The suggestion currently on screen. The context it was built from is deliberately not kept:
     /// acceptance re-reads the live caret instead, because the user keeps typing while it is up.
@@ -102,35 +107,36 @@ final class ProofreadController {
         // we just wrote.
         guard !isApplying else { return }
 
-        evaluationTask?.cancel()
-        evaluationTask = nil
-
-        guard isEnabled, let context = snapshot?.context else {
-            dismiss()
-            return
-        }
-
-        // Completion owns the caret and the Tab key whenever it has something to show.
-        guard !isCompletionVisible() else {
-            if pending != nil { predictionLog?.append("REWRITE skip=completionVisible") }
-            dismiss()
+        guard isEnabled, let context = snapshot?.context, !context.beforeCursor.isEmpty else {
+            reset()
             return
         }
 
         let policy = compatibilityStore.policy(for: context)
         guard policy.isCompletionEnabled, policy.allowsTabAcceptance else {
-            dismiss()
+            reset()
             return
         }
         guard !(policy.excludesSecureField && context.traits.isSecureTextEntry) else {
-            dismiss()
+            reset()
             return
         }
 
-        // A snapshot that changed nothing about the text leaves the current suggestion alone.
-        if lastEvaluatedText == context.beforeCursor, pending != nil { return }
+        // THE pause gate. Only a change in the text restarts the clock.
+        //
+        // The accessibility tracker emits snapshots continuously — caret geometry, window and focus
+        // echoes — several times a second whether or not anyone is typing. Cancelling the in-flight
+        // evaluation on every snapshot (which this method used to do, at the top, before looking at
+        // anything) meant the debounce was restarted faster than it could ever elapse, so the model
+        // was never reached and the pause the user was waiting for never arrived. Returning early
+        // here leaves the running evaluation alone, so a genuine pause in *typing* is what completes
+        // it, rather than a pause in AX traffic that never comes.
+        if lastEvaluatedText == context.beforeCursor { return }
 
-        // Nothing pending survives a real context change; the span it referred to may be gone.
+        evaluationTask?.cancel()
+        evaluationTask = nil
+
+        // Nothing pending survives a real text change; the span it referred to may be gone.
         dismiss()
         lastEvaluatedText = context.beforeCursor
 
@@ -151,6 +157,24 @@ final class ProofreadController {
     private func present(_ suggestion: RewriteSuggestion, for context: TextFieldContext) {
         let span = PredictionLog.escape(suggestion.span.original)
         let replacement = PredictionLog.escape(suggestion.replacement)
+
+        // Priority between the two paths is decided here, and it turns on how long the user paused.
+        //
+        // A spelling fix is instant, so it arrives while the writer is mid-flow and the completion
+        // on screen is usually about the very word they are typing — completion wins, and the fix
+        // waits for the next snapshot. A model grammar fix only exists after a pause of more than a
+        // second, which is the writer saying they have stopped composing; there, the correction wins
+        // and the completion is cleared. Without this split the grammar pass was effectively
+        // invisible, because a completion is nearly always on screen at the moment of a pause.
+        if isCompletionVisible() {
+            switch suggestion.origin {
+            case .proofreader:
+                predictionLog?.append("REWRITE origin=proofreader \"\(span)\" → SUPPRESS(completionVisible)")
+                return
+            case .model:
+                dismissCompletion()
+            }
+        }
 
         guard var placement = placementResolver.placement(for: context, mode: .correction) else {
             // No caret rect, or the app's overlay preference is `.hidden`. The suggestion was real;
@@ -183,9 +207,10 @@ final class ProofreadController {
 
     // MARK: - Acceptance
 
-    /// True when there is a rewrite the user can apply with Tab.
+    /// True when there is a rewrite the user can apply with Tab. The acceptance tap consults this
+    /// only after the completion path has declined the key, so no further check is needed here.
     var canAcceptRewrite: Bool {
-        pending != nil && isEnabled && !isCompletionVisible()
+        pending != nil && isEnabled
     }
 
     func acceptRewrite() {
@@ -228,6 +253,13 @@ final class ProofreadController {
         guard pending != nil else { return }
         pending = nil
         overlay.hide()
+    }
+
+    /// Dismiss and forget the evaluated text, so leaving a field and coming back re-evaluates it
+    /// rather than being swallowed by the unchanged-text guard.
+    private func reset() {
+        lastEvaluatedText = nil
+        dismiss()
     }
 
     private func logOutcome(_ outcome: ReplacementOutcome) {

@@ -3460,3 +3460,52 @@ text. Both are now closed:
 - Consequences: The inline pass gets materially better corrections and stops generating as soon as
   the answer ends instead of running out the token budget. The selection actions keep their current
   behaviour; if they turn out to have the same weakness, they can move to the same prompt.
+
+## ADR-109 — Only a text change restarts the rewrite debounce
+
+- Date: 2026-08-19
+- Status: accepted
+- Context: The inline grammar pass never fired in real use. Its debounce lived inside the rewriter as
+  a `Task.sleep`, and `ProofreadController.handle` cancelled the in-flight evaluation at the top of
+  the method, before examining anything. The accessibility tracker emits snapshots several times a
+  second regardless of typing — caret geometry, window and focus echoes — so the debounce was
+  restarted faster than it could ever elapse. The prediction log showed the symptom plainly once the
+  rewrite path was instrumented: a `REWRITE ctx="" → none` line every ~0.5 s, forever.
+- Decision: Compare the snapshot's text against the last evaluated text *before* touching the
+  running task, and return early when it is unchanged. Only a change in what the user has typed
+  cancels and restarts the evaluation.
+- Consequences: A pause in *typing* now completes the debounce, rather than requiring a pause in AX
+  traffic that never comes. Empty contexts are skipped outright, which also ends the log spam. The
+  general lesson: a debounce keyed on "any event" is not a debounce when events are ambient.
+
+## ADR-110 — The pause decides which path owns the caret
+
+- Date: 2026-08-19
+- Status: accepted
+- Context: A completion is nearly always on screen at the moment the user pauses — that is when the
+  completion pipeline shows its ghost text too. `ProofreadController` stood down whenever a
+  completion was visible, so even after the debounce was fixed the grammar pass would have stayed
+  effectively invisible.
+- Decision: Split priority by how long the user paused, which is the same thing as splitting it by
+  suggestion origin. A spelling fix is instant, arrives mid-flow, and competes with a completion
+  about the very word being typed — completion wins. A model grammar fix only exists after a pause
+  of more than a second, which is the user saying they have stopped composing — the correction wins
+  and clears the completion via the existing `dismissStaleCompletion(mutation:)` entry point.
+- Consequences: Tab ordering in the acceptance tap is unchanged (completion first, rewrite second);
+  the model path simply makes the completion stale before presenting, so the key falls through to
+  it. The completion re-offers itself on the next keystroke, so nothing is permanently lost.
+
+## ADR-111 — A pause counts even with the caret mid-word
+
+- Date: 2026-08-19
+- Status: accepted
+- Context: `scanUnterminated` required the text to end at a whitespace or comma, reasoning that
+  mid-word means the writer is still going. But someone who types a sentence and stops leaves the
+  caret directly after the last letter, so no snapshot ever carried a trailing boundary and the
+  sentence was never evaluated.
+- Decision: Accept a caret sitting mid-word for the unterminated scan. The pause is the evidence
+  that the thought is finished; a boundary character is not, and waiting for one means waiting
+  forever.
+- Consequences: The trailing token may occasionally be a half-typed word. `ModelRewriteGate`'s word
+  retention treats a prefix as the same word, so such a case either passes as a harmless completion
+  of that word or fails the gate — neither corrupts the sentence. Newlines are still refused.

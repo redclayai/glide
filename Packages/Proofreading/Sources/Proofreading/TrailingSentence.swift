@@ -137,14 +137,17 @@ public enum TrailingSentenceScanner {
         "jun", "jul", "aug", "sep", "sept", "oct", "nov", "dec", "mon", "tue", "wed", "thu", "fri"
     ]
 
-    /// A sentence still being written: no terminator yet, but the caret sits after a completed word,
-    /// so the text is at least at a natural boundary rather than mid-token. Only worth offering
-    /// after a pause — see the file header.
+    /// A sentence still being written: no terminator typed yet. Offered only after a pause, which
+    /// is what the caller enforces — see the file header.
+    ///
+    /// This deliberately accepts a caret sitting mid-word. The first version required a trailing
+    /// space, on the reasoning that mid-word means the writer is still going. In practice that made
+    /// the pass almost unreachable: someone who types a sentence and stops leaves the caret directly
+    /// after the last letter, so no snapshot ever carries a trailing boundary and nothing was ever
+    /// evaluated. The pause itself is the evidence that the thought is finished — a boundary
+    /// character is not, and waiting for one means waiting forever.
     public static func scanUnterminated(beforeCursor: String) -> TrailingSentence? {
-        // Must end at a boundary. Mid-word the writer is plainly still going.
-        guard let last = beforeCursor.last else { return nil }
-        guard last.isWhitespace || last == "," || last == ";" else { return nil }
-        guard !last.isNewline else { return nil }
+        guard let last = beforeCursor.last, !last.isNewline else { return nil }
 
         var boundary = ""
         var index = beforeCursor.endIndex

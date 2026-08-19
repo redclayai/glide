@@ -39,9 +39,17 @@ final class TrailingSentenceScannerTests: XCTestCase {
         XCTAssertEqual(trailing?.boundary, " ")
     }
 
-    /// Mid-word the writer is plainly still going.
-    func testUnterminatedScanIgnoresMidWord() {
-        XCTAssertNil(TrailingSentenceScanner.scanUnterminated(beforeCursor: "Ok I have think abo it"))
+    /// Someone who types a sentence and stops leaves the caret directly after the last letter, so
+    /// requiring a trailing boundary meant the pass was never reachable in practice. The pause is
+    /// the signal, not the space.
+    func testScansUnterminatedTextWithTheCaretMidWord() {
+        let trailing = TrailingSentenceScanner.scanUnterminated(beforeCursor: "Ok I have think abo it")
+        XCTAssertEqual(trailing?.sentence, "Ok I have think abo it")
+        XCTAssertEqual(trailing?.boundary, "")
+    }
+
+    func testUnterminatedScanStillRefusesAcrossNewline() {
+        XCTAssertNil(TrailingSentenceScanner.scanUnterminated(beforeCursor: "Ok I have think abo it\n"))
     }
 
     func testUnterminatedScanStopsAtThePreviousSentence() {
@@ -64,7 +72,12 @@ final class TrailingSentenceScannerTests: XCTestCase {
         XCTAssertEqual(unterminated?.termination, .unterminated)
         XCTAssertEqual(unterminated?.sentence.sentence, "i has went to the store")
 
-        XCTAssertNil(TrailingSentenceScanner.scan(beforeCursor: "i has went to the stor"))
+        // Mid-word now qualifies — the pause is what gates it, not a trailing space.
+        let midWord = TrailingSentenceScanner.scan(beforeCursor: "i has went to the stor")
+        XCTAssertEqual(midWord?.termination, .unterminated)
+
+        // Still nothing to say about a fragment.
+        XCTAssertNil(TrailingSentenceScanner.scan(beforeCursor: "yes ok"))
     }
 
     func testStopsAtPreviousSentence() {

@@ -146,10 +146,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         acceptance.completionController = completion
         acceptance.proofreadController = proofread
         acceptance.settings = settings
-        // Completion owns Tab whenever it has something to accept; the rewrite is only offered the
-        // key when it does not.
+        // Completion is offered Tab first; the rewrite only sees the key when completion has nothing
+        // to accept — including when a model fix has just cleared it.
         proofread.isCompletionVisible = { [weak completion = self.completion] in
             completion?.canAcceptCompletion ?? false
+        }
+        proofread.dismissCompletion = { [weak completion = self.completion] in
+            completion?.dismissStaleCompletion(mutation: .nonText)
         }
         proofread.isEnabled = settings.proofreadEnabled
         // When a model finishes setup (GGUF + ACPF both present), make it the selected model and
