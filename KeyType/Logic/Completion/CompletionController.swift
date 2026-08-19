@@ -232,7 +232,9 @@ final class CompletionController {
     private let overlayCalibrator: ScreenshotOverlayCalibrator
     private let inserter: PasteboardCompletionInserter
     private let filter: DefaultCandidateFilter
-    private let predictionLog = PredictionLog()
+    /// Shared with the rewrite path — `PredictionLog.init` truncates the file, so there must be
+    /// exactly one instance.
+    let predictionLog = PredictionLog()
     private let fullPromptLog = FullPromptLog()
     private let log = Logger(subsystem: "com.pattonium.KeyType", category: "completion")
 

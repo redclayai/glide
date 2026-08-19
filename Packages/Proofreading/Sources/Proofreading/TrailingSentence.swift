@@ -6,9 +6,11 @@
 //  counterpart, one level up — and much more conservative, because asking a language model costs
 //  hundreds of milliseconds of local inference where a spell check costs nothing.
 //
-//  A sentence is eligible only once its terminator is committed. Firing on a pause mid-sentence
-//  would ask the model to fix grammar in a fragment that isn't finished being written, which
-//  produces confident corrections to clauses the user was still typing.
+//  Two ways in. A *terminated* sentence — the writer typed the period — is settled and can be
+//  checked promptly. An *unterminated* one is only offered after a longer pause, because a fragment
+//  someone is still mid-clause on will attract confident corrections to a thought they hadn't
+//  finished. The pause is what makes the second case safe, and it is what most sentences in chat
+//  actually are: people rarely type the final period before sending.
 //
 //  The upper bound matters more than it looks: a replacement that falls back to keystrokes costs one
 //  ⇧← per grapheme, and `maximumReplacementKeystrokes` caps that at 256. A sentence longer than the
@@ -60,8 +62,26 @@ public enum TrailingSentenceScanner {
         sentence.split(whereSeparator: { $0.isWhitespace }).count
     }
 
-    /// Resolve the sentence the user just completed, or nil when nothing is eligible.
-    public static func scan(beforeCursor: String) -> TrailingSentence? {
+    /// Whether the sentence's own terminator was typed. Callers use it to decide how long to wait
+    /// before spending a model call: a finished sentence is settled, a fragment might not be.
+    public enum Termination: Equatable {
+        case terminated
+        case unterminated
+    }
+
+    /// Resolve the sentence behind the caret along with whether the writer finished it.
+    public static func scan(beforeCursor: String) -> (sentence: TrailingSentence, termination: Termination)? {
+        if let terminated = scanTerminated(beforeCursor: beforeCursor) {
+            return (terminated, .terminated)
+        }
+        if let unterminated = scanUnterminated(beforeCursor: beforeCursor) {
+            return (unterminated, .unterminated)
+        }
+        return nil
+    }
+
+    /// A sentence whose terminator has been committed.
+    public static func scanTerminated(beforeCursor: String) -> TrailingSentence? {
         // Trailing whitespace committed after the terminator. Anything containing a newline means the
         // caret has left the line and a keystroke replacement could not reach back to it.
         var boundary = ""
@@ -116,6 +136,49 @@ public enum TrailingSentenceScanner {
         "fig", "al", "inc", "ltd", "co", "dept", "est", "min", "max", "jan", "feb", "mar", "apr",
         "jun", "jul", "aug", "sep", "sept", "oct", "nov", "dec", "mon", "tue", "wed", "thu", "fri"
     ]
+
+    /// A sentence still being written: no terminator yet, but the caret sits after a completed word,
+    /// so the text is at least at a natural boundary rather than mid-token. Only worth offering
+    /// after a pause — see the file header.
+    public static func scanUnterminated(beforeCursor: String) -> TrailingSentence? {
+        // Must end at a boundary. Mid-word the writer is plainly still going.
+        guard let last = beforeCursor.last else { return nil }
+        guard last.isWhitespace || last == "," || last == ";" else { return nil }
+        guard !last.isNewline else { return nil }
+
+        var boundary = ""
+        var index = beforeCursor.endIndex
+        while index > beforeCursor.startIndex {
+            let previous = beforeCursor.index(before: index)
+            let character = beforeCursor[previous]
+            guard character.isWhitespace else { break }
+            guard !character.isNewline else { return nil }
+            boundary.insert(character, at: boundary.startIndex)
+            index = previous
+            if boundary.count > 2 { return nil }
+        }
+
+        var sentence = ""
+        var scanned = 0
+        while index > beforeCursor.startIndex {
+            let previous = beforeCursor.index(before: index)
+            let character = beforeCursor[previous]
+            if character.isNewline { break }
+            if isSentenceBreak(at: previous, in: beforeCursor) { break }
+            sentence.insert(character, at: sentence.startIndex)
+            index = previous
+            scanned += 1
+            if scanned > maximumCharacters { return nil }
+        }
+
+        let trimmed = sentence.trimmingCharacters(in: .whitespaces)
+        guard trimmed.count >= minimumCharacters,
+              wordCount(trimmed) >= minimumWords,
+              isProse(trimmed)
+        else { return nil }
+
+        return TrailingSentence(sentence: trimmed, boundary: boundary)
+    }
 
     /// Whether the terminator at `index` really ends a sentence.
     ///

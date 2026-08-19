@@ -32,6 +32,10 @@ final class ProofreadController {
     private let overlay: GhostTextOverlayWindow
     private let placementResolver: OverlayPlacementResolver
     private let compatibilityStore: AppCompatibilityStore
+    /// The same file the completion path writes to. Debug-level os_log is not persisted, so without
+    /// this there was no way to see why a rewrite did or didn't appear — which is exactly the
+    /// question that came up the first time the feature looked dead in a real app.
+    private let predictionLog: PredictionLog?
     private let log = Logger(subsystem: "app.glide", category: "proofread")
 
     /// User-facing on/off switch. Off clears anything pending immediately.
@@ -61,13 +65,15 @@ final class ProofreadController {
         proofreader: any SentenceRewriting,
         replacer: any TextReplacing,
         overlay: GhostTextOverlayWindow = GhostTextOverlayWindow(),
-        compatibilityStore: AppCompatibilityStore = AppCompatibilityStore()
+        compatibilityStore: AppCompatibilityStore = AppCompatibilityStore(),
+        predictionLog: PredictionLog? = nil
     ) {
         self.tracker = tracker
         self.proofreader = proofreader
         self.replacer = replacer
         self.overlay = overlay
         self.compatibilityStore = compatibilityStore
+        self.predictionLog = predictionLog
         self.placementResolver = OverlayPlacementResolver(compatibilityStore: compatibilityStore)
     }
 
@@ -106,6 +112,7 @@ final class ProofreadController {
 
         // Completion owns the caret and the Tab key whenever it has something to show.
         guard !isCompletionVisible() else {
+            if pending != nil { predictionLog?.append("REWRITE skip=completionVisible") }
             dismiss()
             return
         }
@@ -130,13 +137,29 @@ final class ProofreadController {
         evaluationTask = Task { [weak self] in
             guard let self else { return }
             let suggestion = await self.proofreader.suggestion(for: context)
-            guard !Task.isCancelled, let suggestion, suggestion.isMeaningful else { return }
+            guard !Task.isCancelled else { return }
+            guard let suggestion, suggestion.isMeaningful else {
+                self.predictionLog?.append(
+                    "REWRITE ctx=\"\(PredictionLog.contextTail(context.beforeCursor))\" → none"
+                )
+                return
+            }
             self.present(suggestion, for: context)
         }
     }
 
     private func present(_ suggestion: RewriteSuggestion, for context: TextFieldContext) {
-        guard var placement = placementResolver.placement(for: context, mode: .correction) else { return }
+        let span = PredictionLog.escape(suggestion.span.original)
+        let replacement = PredictionLog.escape(suggestion.replacement)
+
+        guard var placement = placementResolver.placement(for: context, mode: .correction) else {
+            // No caret rect, or the app's overlay preference is `.hidden`. The suggestion was real;
+            // there was simply nowhere to draw it.
+            predictionLog?.append(
+                "REWRITE origin=\(suggestion.origin.rawValue) \"\(span)\" → \"\(replacement)\" → SUPPRESS(noPlacement)"
+            )
+            return
+        }
         placement.presentation = .capsule
 
         pending = suggestion
@@ -145,7 +168,9 @@ final class ProofreadController {
             font: .systemFont(ofSize: NSFont.systemFontSize),
             placement: placement
         )
-        log.debug("Offering rewrite: \(suggestion.span.original, privacy: .private) → \(suggestion.replacement, privacy: .private)")
+        predictionLog?.append(
+            "REWRITE origin=\(suggestion.origin.rawValue) \"\(span)\" → \"\(replacement)\" → SHOWN mode=\(placement.mode)"
+        )
     }
 
     /// The capsule shows the replacement as it will land, minus the trailing boundary the span
@@ -174,7 +199,7 @@ final class ProofreadController {
         guard let live = tracker.currentSnapshot?.context,
               live.beforeCursor.hasSuffix(pending.span.original)
         else {
-            log.debug("Rewrite abandoned: the text behind the caret changed before acceptance")
+            predictionLog?.append("REWRITE accept → ABANDONED(spanChanged)")
             return
         }
 
@@ -208,13 +233,14 @@ final class ProofreadController {
     private func logOutcome(_ outcome: ReplacementOutcome) {
         switch outcome {
         case let .applied(mechanism):
-            log.debug("Rewrite applied via \(String(describing: mechanism), privacy: .public)")
+            predictionLog?.append("REWRITE accept → APPLIED(\(mechanism))")
         case .skipped:
-            log.debug("Rewrite skipped at the replacer")
+            predictionLog?.append("REWRITE accept → SKIPPED(atReplacer)")
         }
     }
 
     private func logFailure(_ error: Error) {
+        predictionLog?.append("REWRITE accept → FAILED(\(error.localizedDescription))")
         log.error("Rewrite failed: \(error.localizedDescription, privacy: .public)")
     }
 }

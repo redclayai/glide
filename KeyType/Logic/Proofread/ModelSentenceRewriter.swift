@@ -16,11 +16,16 @@
 //
 //  Two things make this affordable to run while someone types:
 //
-//    - `TrailingSentenceScanner` only returns something when a sentence terminator has just been
-//      committed, so the model is not consulted on every keystroke — only at sentence ends.
-//    - The debounce below runs *before* the model call. `ProofreadController` cancels this task on
-//      the next AX snapshot, so a typist who keeps going cancels the sleep and inference never
-//      starts. Only an actual pause reaches the model.
+//    - `TrailingSentenceScanner` only returns something at a natural boundary — a committed
+//      terminator, or a completed word — so the model is not consulted on every keystroke.
+//    - The debounce runs *before* the model call, and `ProofreadController` cancels this task on the
+//      next AX snapshot, so a typist who keeps going cancels the sleep and inference never starts.
+//      Only an actual pause reaches the model.
+//
+//  The debounce is longer for a sentence with no terminator. A finished sentence is settled and can
+//  be checked promptly; a fragment might just be a thought in progress, and only a real pause says
+//  otherwise. Requiring the terminator outright — the first version of this — meant the feature
+//  almost never fired, because people don't type the final period before sending a chat message.
 //
 //  Everything the model returns is then treated as untrusted: see `ModelRewriteGate`.
 //
@@ -36,26 +41,33 @@ final class ModelSentenceRewriter: SentenceRewriting {
     private let modelFilenameProvider: () -> String
     private let isEnabledProvider: () -> Bool
     private let debounceNanoseconds: UInt64
+    private let unterminatedDebounceNanoseconds: UInt64
     private let log = Logger(subsystem: "app.glide", category: "proofread")
 
     init(
         service: RewriteService,
         modelFilenameProvider: @escaping () -> String,
         isEnabledProvider: @escaping () -> Bool = { true },
-        debounceNanoseconds: UInt64 = 400_000_000
+        debounceNanoseconds: UInt64 = 400_000_000,
+        unterminatedDebounceNanoseconds: UInt64 = 1_100_000_000
     ) {
         self.service = service
         self.modelFilenameProvider = modelFilenameProvider
         self.isEnabledProvider = isEnabledProvider
         self.debounceNanoseconds = debounceNanoseconds
+        self.unterminatedDebounceNanoseconds = unterminatedDebounceNanoseconds
     }
 
     func suggestion(for context: TextFieldContext) async -> RewriteSuggestion? {
         guard isEnabledProvider() else { return nil }
         guard !context.traits.isSecureTextEntry, !context.traits.isPasswordField else { return nil }
-        guard let trailing = TrailingSentenceScanner.scan(beforeCursor: context.beforeCursor) else { return nil }
+        guard let scanned = TrailingSentenceScanner.scan(beforeCursor: context.beforeCursor) else { return nil }
+        let trailing = scanned.sentence
 
-        try? await Task.sleep(nanoseconds: debounceNanoseconds)
+        let debounce = scanned.termination == .terminated
+            ? debounceNanoseconds
+            : unterminatedDebounceNanoseconds
+        try? await Task.sleep(nanoseconds: debounce)
         guard !Task.isCancelled else { return nil }
 
         guard let raw = await service.rewrite(

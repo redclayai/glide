@@ -6,55 +6,92 @@ final class TrailingSentenceScannerTests: XCTestCase {
     // MARK: - Eligibility
 
     func testScansSentenceAfterCommittedTerminator() {
-        let trailing = TrailingSentenceScanner.scan(beforeCursor: "i has went to the store. ")
+        let trailing = TrailingSentenceScanner.scanTerminated(beforeCursor: "i has went to the store. ")
         XCTAssertEqual(trailing?.sentence, "i has went to the store.")
         XCTAssertEqual(trailing?.boundary, " ")
     }
 
     func testAcceptsTerminatorWithNoTrailingSpace() {
-        let trailing = TrailingSentenceScanner.scan(beforeCursor: "i has went to the store.")
+        let trailing = TrailingSentenceScanner.scanTerminated(beforeCursor: "i has went to the store.")
         XCTAssertEqual(trailing?.sentence, "i has went to the store.")
         XCTAssertEqual(trailing?.boundary, "")
     }
 
     func testSpanEndsAtCaret() {
         let before = "Hi there. i has went to the store. "
-        let span = TrailingSentenceScanner.scan(beforeCursor: before)?.span
+        let span = TrailingSentenceScanner.scanTerminated(beforeCursor: before)?.span
         XCTAssertEqual(span?.original, "i has went to the store. ")
         XCTAssertTrue(before.hasSuffix(span?.original ?? "!"), "span must be a suffix of the text before the caret")
     }
 
-    /// Mid-sentence the user is still writing the clause; a correction there argues with them.
-    func testIgnoresUnterminatedText() {
-        XCTAssertNil(TrailingSentenceScanner.scan(beforeCursor: "i has went to the store"))
-        XCTAssertNil(TrailingSentenceScanner.scan(beforeCursor: "i has went to the store "))
+    func testTerminatedScanIgnoresUnterminatedText() {
+        XCTAssertNil(TrailingSentenceScanner.scanTerminated(beforeCursor: "i has went to the store"))
+        XCTAssertNil(TrailingSentenceScanner.scanTerminated(beforeCursor: "i has went to the store "))
+    }
+
+    // MARK: - Unterminated sentences (offered only after a pause)
+
+    /// Most chat messages never get their final period, so refusing to look at them meant the
+    /// grammar pass almost never fired in practice.
+    func testScansUnterminatedTextAtAWordBoundary() {
+        let trailing = TrailingSentenceScanner.scanUnterminated(beforeCursor: "Ok I have think abo it ")
+        XCTAssertEqual(trailing?.sentence, "Ok I have think abo it")
+        XCTAssertEqual(trailing?.boundary, " ")
+    }
+
+    /// Mid-word the writer is plainly still going.
+    func testUnterminatedScanIgnoresMidWord() {
+        XCTAssertNil(TrailingSentenceScanner.scanUnterminated(beforeCursor: "Ok I have think abo it"))
+    }
+
+    func testUnterminatedScanStopsAtThePreviousSentence() {
+        let trailing = TrailingSentenceScanner.scanUnterminated(beforeCursor: "That was fine. but he dont agree ")
+        XCTAssertEqual(trailing?.sentence, "but he dont agree")
+    }
+
+    func testUnterminatedScanAppliesTheSameSizeAndProseGates() {
+        XCTAssertNil(TrailingSentenceScanner.scanUnterminated(beforeCursor: "yes ok "))
+        XCTAssertNil(TrailingSentenceScanner.scanUnterminated(beforeCursor: "see https://example.org/docs now "))
+    }
+
+    // MARK: - Dispatch
+
+    func testScanReportsTermination() {
+        let terminated = TrailingSentenceScanner.scan(beforeCursor: "i has went to the store. ")
+        XCTAssertEqual(terminated?.termination, .terminated)
+
+        let unterminated = TrailingSentenceScanner.scan(beforeCursor: "i has went to the store ")
+        XCTAssertEqual(unterminated?.termination, .unterminated)
+        XCTAssertEqual(unterminated?.sentence.sentence, "i has went to the store")
+
+        XCTAssertNil(TrailingSentenceScanner.scan(beforeCursor: "i has went to the stor"))
     }
 
     func testStopsAtPreviousSentence() {
-        let trailing = TrailingSentenceScanner.scan(beforeCursor: "That was fine. But he don't agree with it. ")
+        let trailing = TrailingSentenceScanner.scanTerminated(beforeCursor: "That was fine. But he don't agree with it. ")
         XCTAssertEqual(trailing?.sentence, "But he don't agree with it.")
     }
 
     /// "e.g." and "Dr." must not truncate the sentence they sit inside.
     func testAbbreviationsDoNotTruncateTheSentence() {
-        let trailing = TrailingSentenceScanner.scan(beforeCursor: "We should ask Dr. Ramirez about it. ")
+        let trailing = TrailingSentenceScanner.scanTerminated(beforeCursor: "We should ask Dr. Ramirez about it. ")
         XCTAssertEqual(trailing?.sentence, "We should ask Dr. Ramirez about it.")
     }
 
     func testRefusesAcrossNewline() {
-        XCTAssertNil(TrailingSentenceScanner.scan(beforeCursor: "All done.\n"))
+        XCTAssertNil(TrailingSentenceScanner.scanTerminated(beforeCursor: "All done.\n"))
     }
 
     // MARK: - Size and content gates
 
     func testRefusesFragments() {
-        XCTAssertNil(TrailingSentenceScanner.scan(beforeCursor: "Yes. "))
-        XCTAssertNil(TrailingSentenceScanner.scan(beforeCursor: "Sounds good. "))
+        XCTAssertNil(TrailingSentenceScanner.scanTerminated(beforeCursor: "Yes. "))
+        XCTAssertNil(TrailingSentenceScanner.scanTerminated(beforeCursor: "Sounds good. "))
     }
 
     func testRefusesSentencesTooLongToApply() {
         let long = String(repeating: "word ", count: 60) + "end. "
-        XCTAssertNil(TrailingSentenceScanner.scan(beforeCursor: long))
+        XCTAssertNil(TrailingSentenceScanner.scanTerminated(beforeCursor: long))
     }
 
     /// The scanner's cap has to stay under the replacement keystroke bound, or it could propose a

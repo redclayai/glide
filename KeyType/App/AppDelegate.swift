@@ -139,7 +139,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 planner: ReplacementPlanner(compatibilityStore: compatibilityStore),
                 spanReplacer: AXCaretSpanReplacer()
             ),
-            compatibilityStore: compatibilityStore
+            compatibilityStore: compatibilityStore,
+            predictionLog: completion.predictionLog
         )
         super.init()
         acceptance.completionController = completion

@@ -69,6 +69,54 @@ final class ModelRewriteGateTests: XCTestCase {
         XCTAssertFalse(ModelRewriteGate.accepts(candidate: "He disagrees.", original: "He don't agree with it at all."))
     }
 
+    /// The case that exposed character distance as the wrong measure: every word the writer chose
+    /// survives, corrected in place, but half the characters change.
+    func testAcceptsACorrectionThatRewritesManyCharacters() {
+        XCTAssertTrue(ModelRewriteGate.accepts(
+            candidate: "Okay, I have thought about it.",
+            original: "Ok I have think abo it"
+        ))
+        XCTAssertGreaterThan(
+            ModelRewriteGate.editRatio(candidate: "Okay, I have thought about it.", original: "Ok I have think abo it"),
+            0.34,
+            "this is exactly the correction the old character threshold rejected"
+        )
+    }
+
+    func testAcceptsPunctuationOnlyFixesOnUnterminatedText() {
+        XCTAssertTrue(ModelRewriteGate.accepts(candidate: "Can you send me the file?", original: "can you send me the file"))
+        XCTAssertTrue(ModelRewriteGate.accepts(candidate: "Let's meet at 3pm tomorrow.", original: "Lets meet at 3pm tomorrow"))
+    }
+
+    // MARK: - Word retention
+
+    func testRetentionSeparatesCorrectionFromRevoicing() {
+        let correction = ModelRewriteGate.wordRetention(
+            candidate: "Okay, I have thought about it.", original: "Ok I have think abo it"
+        )
+        let revoicing = ModelRewriteGate.wordRetention(
+            candidate: "He disagrees with it.", original: "He don't agree with it."
+        )
+        XCTAssertGreaterThanOrEqual(correction, ModelRewriteGate.minimumWordRetention)
+        XCTAssertLessThan(revoicing, ModelRewriteGate.minimumWordRetention)
+    }
+
+    func testWordsAreTheSameWhenCorrectedInPlace() {
+        XCTAssertTrue(ModelRewriteGate.isSameWord("abo", "about"))
+        XCTAssertTrue(ModelRewriteGate.isSameWord("finish", "finished"))
+        XCTAssertTrue(ModelRewriteGate.isSameWord("agree", "agree"))
+        XCTAssertFalse(ModelRewriteGate.isSameWord("agree", "disagrees"))
+        XCTAssertFalse(ModelRewriteGate.isSameWord("cat", "dog"))
+    }
+
+    func testRetentionIsZeroAgainstUnrelatedText() {
+        XCTAssertEqual(
+            ModelRewriteGate.wordRetention(candidate: "Completely different words here.", original: "He don't agree."),
+            0,
+            accuracy: 0.01
+        )
+    }
+
     // MARK: - Helpers
 
     func testLevenshteinIsCorrect() {
