@@ -16,7 +16,10 @@ struct MenuBarLabel: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Image(systemName: "text.cursor")
+        // Glide's own mark rather than an SF Symbol, so the menu bar matches the app icon. Drawn
+        // for this size rather than scaled down from the icon — see Scripts/Icon/render-menubar.swift.
+        // The asset is a template image, so AppKit handles light, dark, and menu-open inversion.
+        Image("MenuBarGlyph")
             .onReceive(NotificationCenter.default.publisher(for: .keyTypeShouldOpenOnboarding)) { _ in
                 NSApp.activate(ignoringOtherApps: true)
                 openWindow(id: AppDelegate.onboardingWindowID)
