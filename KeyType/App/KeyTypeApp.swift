@@ -40,6 +40,14 @@ struct KeyTypeApp: App {
         .defaultPosition(.center)
         .commandsRemoved()
 
+        Window("Your Glide", id: AppDelegate.statsWindowID) {
+            StatsView(store: appDelegate.rewriteStats)
+                .onAppear { appDelegate.mainWindowDidAppear(id: AppDelegate.statsWindowID) }
+                .onDisappear { appDelegate.mainWindowDidDisappear(id: AppDelegate.statsWindowID) }
+        }
+        .defaultPosition(.center)
+        .commandsRemoved()
+
         Window("Glide Settings", id: AppDelegate.settingsWindowID) {
             SettingsView(
                 settings: appDelegate.settings,

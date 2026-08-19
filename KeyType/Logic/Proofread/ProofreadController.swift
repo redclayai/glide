@@ -20,6 +20,7 @@ import AppKit
 import AutocompleteCore
 import CompletionUI
 import MacContextCapture
+import Personalization
 import Proofreading
 import TextInsertion
 import os
@@ -36,6 +37,8 @@ final class ProofreadController {
     /// this there was no way to see why a rewrite did or didn't appear — which is exactly the
     /// question that came up the first time the feature looked dead in a real app.
     private let predictionLog: PredictionLog?
+    /// Records accepted rewrites so the stats window can say what the feature has actually done.
+    private let stats: RewriteStatsStore?
     private let log = Logger(subsystem: "app.glide", category: "proofread")
 
     /// User-facing on/off switch. Off clears anything pending immediately.
@@ -71,7 +74,8 @@ final class ProofreadController {
         replacer: any TextReplacing,
         overlay: GhostTextOverlayWindow = GhostTextOverlayWindow(),
         compatibilityStore: AppCompatibilityStore = AppCompatibilityStore(),
-        predictionLog: PredictionLog? = nil
+        predictionLog: PredictionLog? = nil,
+        stats: RewriteStatsStore? = nil
     ) {
         self.tracker = tracker
         self.proofreader = proofreader
@@ -79,6 +83,7 @@ final class ProofreadController {
         self.overlay = overlay
         self.compatibilityStore = compatibilityStore
         self.predictionLog = predictionLog
+        self.stats = stats
         self.placementResolver = OverlayPlacementResolver(compatibilityStore: compatibilityStore)
     }
 
@@ -190,8 +195,8 @@ final class ProofreadController {
 
         pending = suggestion
         pendingContext = context
-        overlay.show(
-            text: Self.displayText(for: suggestion),
+        overlay.showSuggestion(
+            diff: Self.diff(for: suggestion),
             font: .systemFont(ofSize: NSFont.systemFontSize),
             placement: placement
         )
@@ -200,12 +205,15 @@ final class ProofreadController {
         )
     }
 
-    /// The capsule shows the replacement as it will land, minus the trailing boundary the span
-    /// carries so it ends at the caret — rendering "receive " with its space reads as a typo of its
-    /// own. Nothing is truncated: the sentence scanner is bounded so a model rewrite always fits,
-    /// because accepting text you cannot fully read is worse than not being offered it.
-    static func displayText(for suggestion: RewriteSuggestion) -> String {
-        suggestion.replacement.trimmingCharacters(in: .whitespaces)
+    /// What the capsule renders: the replacement with its changed words marked, minus the trailing
+    /// boundary the span carries so it ends at the caret — showing "receive " with its space reads
+    /// as a typo of its own. Nothing is truncated: the sentence scanner is bounded so a rewrite
+    /// always fits, because accepting text you cannot fully read is worse than not being offered it.
+    static func diff(for suggestion: RewriteSuggestion) -> RewriteDiff {
+        RewriteDiff.between(
+            original: suggestion.span.original.trimmingCharacters(in: .whitespaces),
+            replacement: suggestion.replacement.trimmingCharacters(in: .whitespaces)
+        )
     }
 
     // MARK: - Acceptance
@@ -252,12 +260,14 @@ final class ProofreadController {
         )
 
         // Our own replacement keystrokes come back as snapshots; ignore them until the write is done.
+        let suggestion = pending
+        let target = reference.target
         isApplying = true
         Task { [weak self] in
             defer { self?.isApplying = false }
             do {
                 guard let outcome = try await self?.replacer.replace(plan: plan) else { return }
-                self?.logOutcome(outcome)
+                self?.logOutcome(outcome, suggestion: suggestion, target: target)
             } catch {
                 self?.logFailure(error)
             }
@@ -280,13 +290,30 @@ final class ProofreadController {
         dismiss()
     }
 
-    private func logOutcome(_ outcome: ReplacementOutcome) {
+    private func logOutcome(_ outcome: ReplacementOutcome, suggestion: RewriteSuggestion, target: AppTarget) {
         switch outcome {
         case let .applied(mechanism):
             predictionLog?.append("REWRITE accept → APPLIED(\(mechanism))")
+            record(suggestion, target: target)
         case .skipped:
             predictionLog?.append("REWRITE accept → SKIPPED(atReplacer)")
         }
+    }
+
+    /// Only *applied* rewrites are counted. What was offered is not the interesting number, and
+    /// counting it would flatter the feature for being noisy.
+    private func record(_ suggestion: RewriteSuggestion, target: AppTarget) {
+        let diff = Self.diff(for: suggestion)
+        stats?.record(
+            RewriteEvent(
+                date: Date(),
+                appName: target.appName,
+                bundleIdentifier: target.bundleIdentifier,
+                origin: suggestion.origin.rawValue,
+                charactersChanged: diff.changedCharacterCount,
+                wordsChanged: diff.changedWordCount
+            )
+        )
     }
 
     private func logFailure(_ error: Error) {

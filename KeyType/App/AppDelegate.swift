@@ -19,6 +19,7 @@ import UniformTypeIdentifiers
 final class AppDelegate: NSObject, NSApplicationDelegate {
     static let onboardingWindowID = "onboarding"
     static let settingsWindowID = "settings"
+    static let statsWindowID = "stats"
     /// Stores the onboarding version the user last *completed*, not a yes/no flag, so a future
     /// revamp can re-show the wizard by bumping `currentOnboardingVersion`. An absent key reads as 0.
     private static let onboardingCompletedVersionKey = "KeyType.onboardingCompletedVersion"
@@ -50,6 +51,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Spelling/grammar rewrite of the word just typed, offered as a capsule under the caret and
     /// applied with Tab. Isolated from the completion pipeline; see ProofreadController.
     let proofread: ProofreadController
+    /// Accepted-rewrite history behind the stats window.
+    let rewriteStats = RewriteStatsStore()
     private let acceptance = CompletionAcceptanceController()
     private lazy var developerOverridePanel = DeveloperOverridePanelController(
         settings: settings,
@@ -140,7 +143,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 spanReplacer: AXCaretSpanReplacer()
             ),
             compatibilityStore: compatibilityStore,
-            predictionLog: completion.predictionLog
+            predictionLog: completion.predictionLog,
+            stats: rewriteStats
         )
         super.init()
         acceptance.completionController = completion

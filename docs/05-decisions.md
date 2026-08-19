@@ -3545,3 +3545,35 @@ text. Both are now closed:
 - Consequences: Acceptance survives the ambient empty snapshot. The safety this check provides is
   not lost — `AXCaretSpanReplacer` re-verifies the span against the real element immediately before
   writing, and refuses if it has moved.
+
+## ADR-114 — Show the rewrite as a diff, on a grey surface, with the accept key named
+
+- Date: 2026-08-19
+- Status: accepted
+- Context: The rewrite was presented as a plain pill containing the replacement text. For a
+  whole-sentence grammar fix that means the reader has to diff two sentences in their head under
+  time pressure — precisely the work the feature exists to save — and nothing on screen said how to
+  accept it.
+- Decision: A dedicated `SuggestionCapsuleView`: the changed words emphasised via a word-level
+  `RewriteDiff`, a `Tab` key cap on the trailing edge, and wrapping to multiple lines rather than
+  truncating. The surface is explicitly grey in both appearances rather than
+  `windowBackgroundColor`, which renders near-white on a light desktop and near-black on a dark one —
+  neither of which reads as something floating *over* the document.
+- Consequences: Accepting is a glance. The diff is word-level, not character-level, because marking
+  letters inside a word renders as noise. Emphasis is weight *and* colour, so it survives colour
+  blindness. Sizing moves from hand-computed text layout to `fittingSize` on the hosting view, which
+  is the only way to place a surface whose height depends on how the sentence wrapped.
+
+## ADR-115 — Count accepted rewrites only
+
+- Date: 2026-08-19
+- Status: accepted
+- Context: A stats view needs per-app and over-time data that `CompletionTelemetryStore`'s aggregate
+  counters cannot reconstruct, so the rewrite path gets its own event log.
+- Decision: One record per *accepted* rewrite — timestamp, app, origin, characters and words
+  changed. Offered-and-ignored suggestions are not recorded.
+- Consequences: The headline number goes up only when Glide was useful. Counting what it offered
+  would rise when it got noisier, which is exactly the behaviour the suppression rules exist to
+  prevent, and a metric that rewards the failure mode will eventually be optimised toward it. Time
+  saved is derived from characters not retyped at 5 characters/second and labelled as an estimate.
+  Storage is bounded JSON with no captured text.

@@ -42,6 +42,11 @@ struct MenuBarView: View {
 
             Divider()
 
+            Button("Your Glide…") {
+                NSApp.activate(ignoringOtherApps: true)
+                openWindow(id: AppDelegate.statsWindowID)
+            }
+
             Button("Open Glide…") {
                 NSApp.activate(ignoringOtherApps: true)
                 openWindow(id: AppDelegate.onboardingWindowID)

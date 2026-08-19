@@ -122,6 +122,44 @@ public final class GhostTextOverlayWindow {
         lastShow = (text, style, placement, mirrorContext)
     }
 
+    /// Show a rewrite suggestion in the `SuggestionCapsuleView` surface, below the caret.
+    ///
+    /// Separate from `show(text:style:placement:)` because the geometry is different in kind: that
+    /// path lays text out itself, line by line, against the target field's metrics. This one hands
+    /// layout to SwiftUI and asks the hosting view how big it ended up, which is the only way to
+    /// place a surface whose height depends on how the sentence wrapped.
+    public func showSuggestion(diff: RewriteDiff, font: NSFont, placement: OverlayPlacement) {
+        guard !diff.segments.isEmpty else { hide(); return }
+
+        window.hasShadow = true
+        let onClick = onCapsuleClick
+        hosting.rootView = AnyView(
+            SuggestionCapsuleView(diff: diff, font: font)
+                .contentShape(Rectangle())
+                .onTapGesture { onClick?() }
+        )
+
+        let size = hosting.fittingSize
+        let caret = placement.cursorRect
+        var x = caret.minX
+        let y = caret.minY - SuggestionCapsuleView.gapBelowCaret - size.height
+
+        // Keep the whole surface on screen. Anchoring to the caret is the intent, but a suggestion
+        // clipped by the screen edge cannot be read, and the caret is often near one.
+        if let screen = NSScreen.screens.first(where: { $0.frame.intersects(caret) }) ?? NSScreen.main {
+            let visible = screen.visibleFrame
+            x = min(max(x, visible.minX + 8), visible.maxX - size.width - 8)
+        }
+
+        window.setFrame(CGRect(x: x, y: y, width: size.width, height: size.height), display: true)
+        if !window.isVisible {
+            window.orderFrontRegardless()
+        }
+        // Not a `lastShow`: `advanceAfterAccepting` is a completion concept, and a rewrite is taken
+        // whole or not at all.
+        lastShow = nil
+    }
+
     /// Eagerly shrink the shown inline ghost text past an accepted word: shift it by the rendered
     /// width of `head` and redraw `remainder`, *now*, instead of waiting for the target app's AX
     /// value-changed notification. That notification lags the keystroke by tens-to-hundreds of ms in
