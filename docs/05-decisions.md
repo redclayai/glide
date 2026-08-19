@@ -3509,3 +3509,39 @@ text. Both are now closed:
 - Consequences: The trailing token may occasionally be a half-typed word. `ModelRewriteGate`'s word
   retention treats a prefix as the same word, so such a case either passes as a harmless completion
   of that word or fails the gate — neither corrupts the sentence. Newlines are still refused.
+
+## ADR-112 — A post-pause rewrite takes the accept key outright; the capsule is clickable
+
+- Date: 2026-08-19
+- Status: accepted
+- Context: With the pause working, the grammar fix appeared but could not be taken. The prediction
+  log showed `SHOWN` lines and not a single `REWRITE accept →` line, so the key was never reaching
+  the rewrite path. ADR-110 had the model path clear the visible completion before presenting, but
+  the completion pipeline keeps running and re-shows within the second it takes a user to reach for
+  Tab — at which point the completion branch, checked first, consumed the key again. Separately, a
+  suggestion the user can only take with a key is a suggestion they cannot take with the mouse,
+  which is how people dismiss and accept things they are reading.
+- Decision: Order the acceptance tap by pause rather than by path — `rewriteOwnsAcceptKey` (a
+  pending suggestion of model origin) is checked *before* the completion branch; a spelling fix
+  still comes after it. And make the capsule clickable: `GhostTextOverlayWindow.onCapsuleClick`
+  flips the panel's `ignoresMouseEvents` and wires a tap into the capsule view only, so inline ghost
+  text stays click-through — it sits on top of the text being edited and must never swallow a click.
+  The hosting view overrides `acceptsFirstMouse` so the click lands while another app is frontmost
+  instead of being spent activating Glide.
+- Consequences: Tab takes the fix even if a completion has reappeared behind it, and the mouse works
+  for people who are reading rather than typing. Accepting no longer depends on state that something
+  else can quietly undo between presenting and pressing.
+
+## ADR-113 — An empty accessibility snapshot means "no information", not "empty field"
+
+- Date: 2026-08-19
+- Status: accepted
+- Context: `acceptRewrite` re-read the live caret and abandoned the fix when the text behind it no
+  longer matched the span. But the tracker interleaves empty snapshots between real ones — window
+  and focus echoes, visible in the log as a `ctx=""` line every half second — and an empty read
+  compared against a real span always fails, abandoning good suggestions at random.
+- Decision: Treat an empty live read as absent rather than authoritative, and fall back to the
+  context the suggestion was computed against. A non-empty live read still wins.
+- Consequences: Acceptance survives the ambient empty snapshot. The safety this check provides is
+  not lost — `AXCaretSpanReplacer` re-verifies the span against the real element immediately before
+  writing, and refuses if it has moved.

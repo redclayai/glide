@@ -54,9 +54,9 @@ final class ProofreadController {
     /// they type again.
     var dismissCompletion: () -> Void = {}
 
-    /// The suggestion currently on screen. The context it was built from is deliberately not kept:
-    /// acceptance re-reads the live caret instead, because the user keeps typing while it is up.
+    /// The suggestion currently on screen, and the text it was computed against.
     private var pending: RewriteSuggestion?
+    private var pendingContext: TextFieldContext?
     private var listenerToken: UUID?
     private var evaluationTask: Task<Void, Never>?
     private var isApplying = false
@@ -86,6 +86,7 @@ final class ProofreadController {
 
     func start() {
         guard listenerToken == nil else { return }
+        overlay.onCapsuleClick = { [weak self] in self?.acceptRewrite() }
         listenerToken = tracker.addListener { [weak self] snapshot in
             MainActor.assumeIsolated { self?.handle(snapshot) }
         }
@@ -97,6 +98,7 @@ final class ProofreadController {
         }
         listenerToken = nil
         lastEvaluatedText = nil
+        overlay.onCapsuleClick = nil
         dismiss()
     }
 
@@ -187,6 +189,7 @@ final class ProofreadController {
         placement.presentation = .capsule
 
         pending = suggestion
+        pendingContext = context
         overlay.show(
             text: Self.displayText(for: suggestion),
             font: .systemFont(ofSize: NSFont.systemFontSize),
@@ -207,23 +210,37 @@ final class ProofreadController {
 
     // MARK: - Acceptance
 
-    /// True when there is a rewrite the user can apply with Tab. The acceptance tap consults this
-    /// only after the completion path has declined the key, so no further check is needed here.
+    /// True when there is a rewrite the user can apply with Tab.
     var canAcceptRewrite: Bool {
         pending != nil && isEnabled
     }
 
+    /// True when the rewrite should get the accept key *ahead of* a visible completion.
+    ///
+    /// Clearing the completion at present time is not enough on its own: the completion pipeline
+    /// keeps running and re-shows within the second it takes the user to reach for Tab, and then it
+    /// wins the key again. A model fix only exists after a pause, so it outranks a prediction
+    /// outright rather than depending on having cleared one earlier. A spelling fix does not — it
+    /// arrives mid-flow, where the completion is about the word being typed.
+    var rewriteOwnsAcceptKey: Bool {
+        canAcceptRewrite && pending?.origin == .model
+    }
+
     func acceptRewrite() {
-        guard let pending else { return }
+        guard let pending, isEnabled else { return }
         self.pending = nil
+        pendingContext = nil
         overlay.hide()
 
-        // The field may have moved on between the suggestion being offered and Tab being pressed.
-        // Re-read the caret rather than trusting the snapshot the suggestion was built from; the AX
-        // replacer verifies the span again before writing, and the keystroke fallbacks cannot.
-        guard let live = tracker.currentSnapshot?.context,
-              live.beforeCursor.hasSuffix(pending.span.original)
-        else {
+        // The field may have moved on between the suggestion being offered and the accept, so
+        // prefer a live read of the caret. But the tracker also emits empty snapshots between real
+        // ones — window and focus echoes — and treating one of those as "the text changed" would
+        // abandon a perfectly good fix at random. An empty live read means "no information", not
+        // "the field is empty", so fall back to the context the suggestion was built from.
+        let live = tracker.currentSnapshot?.context
+        let reference = (live?.beforeCursor.isEmpty == false ? live : pendingContext)
+
+        guard let reference, reference.beforeCursor.hasSuffix(pending.span.original) else {
             predictionLog?.append("REWRITE accept → ABANDONED(spanChanged)")
             return
         }
@@ -231,7 +248,7 @@ final class ProofreadController {
         let plan = replacer.planReplacement(
             span: pending.span,
             replacement: pending.replacement,
-            context: live
+            context: reference
         )
 
         // Our own replacement keystrokes come back as snapshots; ignore them until the write is done.
@@ -252,6 +269,7 @@ final class ProofreadController {
         evaluationTask = nil
         guard pending != nil else { return }
         pending = nil
+        pendingContext = nil
         overlay.hide()
     }
 

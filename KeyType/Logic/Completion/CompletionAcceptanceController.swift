@@ -18,8 +18,9 @@ import os
 @MainActor
 final class CompletionAcceptanceController {
     weak var completionController: CompletionController?
-    /// The rewrite path. Offered the accept key only when the completion path has nothing to accept,
-    /// so completion always wins Tab and the two never fight over it.
+    /// The rewrite path. Which of the two owns the accept key depends on how long the user paused:
+    /// a post-pause model fix is offered the key first, a spelling fix only after completion has
+    /// declined it. See ADR-110 / ADR-112.
     weak var proofreadController: ProofreadController?
     /// Source of the configurable acceptance hotkeys. Read on every matching key-down.
     weak var settings: SettingsStore?
@@ -115,6 +116,16 @@ final class CompletionAcceptanceController {
         let matchesFull = acceptFull.matches(keyCode: keyCode, flags: flags)
         let matchesWord = acceptWord.matches(keyCode: keyCode, flags: flags)
 
+        // A rewrite that only exists because the user paused outranks a predicted continuation: by
+        // then they have stopped composing, and correcting what they wrote beats guessing what comes
+        // next. Checked before the completion path because the completion re-shows itself in the
+        // second it takes to reach for the key.
+        if matchesFull || matchesWord,
+           let proofread = proofreadController, proofread.rewriteOwnsAcceptKey {
+            proofread.acceptRewrite()
+            return nil // consume — the key applied the rewrite instead of its native action
+        }
+
         if matchesFull || matchesWord,
            let controller = completionController, controller.canAcceptCompletion {
             if matchesFull {
@@ -125,8 +136,8 @@ final class CompletionAcceptanceController {
             return nil // consume — the key accepted the completion instead of its native action
         }
 
-        // No completion to accept: offer the key to the rewrite path before treating it as a key
-        // that invalidates whatever is on screen.
+        // No completion to accept: offer the key to a spelling fix before treating it as a key that
+        // invalidates whatever is on screen.
         if matchesFull || matchesWord,
            let proofread = proofreadController, proofread.canAcceptRewrite {
             proofread.acceptRewrite()

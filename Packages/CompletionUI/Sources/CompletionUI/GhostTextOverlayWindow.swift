@@ -16,7 +16,15 @@ import SwiftUI
 @MainActor
 public final class GhostTextOverlayWindow {
     private lazy var window: NSPanel = makeWindow()
-    private let hosting = NSHostingView(rootView: AnyView(EmptyView()))
+    private let hosting = FirstMouseHostingView(rootView: AnyView(EmptyView()))
+
+    /// Set to make a capsule overlay clickable. Ghost text must stay click-through — it sits *on*
+    /// the text the user is editing, and swallowing clicks there would break the field itself — so
+    /// the panel only stops ignoring mouse events while a handler is installed, and only the capsule
+    /// presentation wires the tap through.
+    public var onCapsuleClick: (() -> Void)? {
+        didSet { window.ignoresMouseEvents = onCapsuleClick == nil }
+    }
 
     /// The parameters of the last `show`, kept so the overlay can be advanced past an accepted word
     /// without waiting for an AX snapshot (`advanceAfterAccepting`). Cleared on `hide`.
@@ -66,6 +74,7 @@ public final class GhostTextOverlayWindow {
             // off whatever text it sits below; ghost text deliberately has none (it should read as
             // part of the field).
             window.hasShadow = true
+            let onClick = onCapsuleClick
             hosting.rootView = AnyView(
                 CapsuleCompletionView(
                     text: text,
@@ -73,6 +82,8 @@ public final class GhostTextOverlayWindow {
                     horizontalPadding: Self.capsuleHorizontalPadding,
                     verticalPadding: Self.capsuleVerticalPadding
                 )
+                .contentShape(Rectangle())
+                .onTapGesture { onClick?() }
             )
         case (.inlineGhost, true):
             window.hasShadow = false
@@ -168,6 +179,19 @@ public final class GhostTextOverlayWindow {
         panel.animationBehavior = .none
 
         return panel
+    }
+
+    /// A hosting view that responds to the click that *arrives while another app is frontmost*.
+    /// Without `acceptsFirstMouse` the first click on a background-app panel is spent activating it,
+    /// which for a suggestion means the user clicks once, nothing happens, and the suggestion is
+    /// gone by the time they click again.
+    final class FirstMouseHostingView: NSHostingView<AnyView> {
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+        @available(*, unavailable)
+        required init(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+        required init(rootView: AnyView) { super.init(rootView: rootView) }
     }
 
     static func availableTextWidth(for placement: OverlayPlacement, singleLineWidth: CGFloat) -> CGFloat {
