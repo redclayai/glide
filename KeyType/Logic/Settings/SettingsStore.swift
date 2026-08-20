@@ -11,6 +11,7 @@
 
 import AutocompleteCore
 import Foundation
+import Proofreading
 import Observation
 
 /// Completion length presets, mapped to the decoder's token/width budget.
@@ -112,6 +113,8 @@ final class SettingsStore {
         static let selectionActionsEnabled = "KeyType.settings.selectionActionsEnabled"
         static let proofreadEnabled = "Glide.settings.proofreadEnabled"
         static let aiGrammarEnabled = "Glide.settings.aiGrammarEnabled"
+        static let grammarBackend = "Glide.settings.grammarBackend"
+        static let grammarModel = "Glide.settings.grammarModel"
         static let completionLength = "KeyType.settings.completionLength"
         static let selectedModelFilename = "KeyType.settings.selectedModelFilename"
         static let perAppDisabled = "KeyType.settings.perAppDisabledBundleIDs"
@@ -168,6 +171,22 @@ final class SettingsStore {
         didSet { defaults.set(aiGrammarEnabled, forKey: Key.aiGrammarEnabled) }
     }
 
+    /// Which engine answers the grammar question. Local by default and stays that way unless the
+    /// user picks otherwise — a cloud backend sends their writing off the machine.
+    var grammarBackend: RewriteBackend {
+        didSet {
+            defaults.set(grammarBackend.rawValue, forKey: Key.grammarBackend)
+            // A model name belongs to a provider, so switching provider resets it rather than
+            // carrying a name the new one will 404 on.
+            if grammarBackend != oldValue { grammarModel = grammarBackend.defaultModel }
+        }
+    }
+
+    /// Editable, because provider model names change more often than this app ships.
+    var grammarModel: String {
+        didSet { defaults.set(grammarModel, forKey: Key.grammarModel) }
+    }
+
     var selectionActionsEnabled: Bool {
         didSet { defaults.set(selectionActionsEnabled, forKey: Key.selectionActionsEnabled) }
     }
@@ -213,6 +232,10 @@ final class SettingsStore {
         self.selectionActionsEnabled = defaults.object(forKey: Key.selectionActionsEnabled) as? Bool ?? true
         self.proofreadEnabled = defaults.object(forKey: Key.proofreadEnabled) as? Bool ?? true
         self.aiGrammarEnabled = defaults.object(forKey: Key.aiGrammarEnabled) as? Bool ?? true
+        let backend = (defaults.string(forKey: Key.grammarBackend))
+            .flatMap(RewriteBackend.init(rawValue:)) ?? .local
+        self.grammarBackend = backend
+        self.grammarModel = defaults.string(forKey: Key.grammarModel) ?? backend.defaultModel
         self.completionLength = (defaults.string(forKey: Key.completionLength))
             .flatMap(CompletionLength.init(rawValue:)) ?? .medium
         self.selectedModelFilename = defaults.string(forKey: Key.selectedModelFilename)

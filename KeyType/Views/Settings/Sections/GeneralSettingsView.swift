@@ -7,6 +7,7 @@
 //
 
 import LaunchAtLogin
+import Proofreading
 import SwiftUI
 
 struct GeneralSettingsView: View {
@@ -44,6 +45,8 @@ struct GeneralSettingsView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
+
+            GrammarBackendSettingsView(settings: settings, keys: APIKeyStore())
 
             Section("Selection actions") {
                 Toggle("Polish & Grammar on selected text", isOn: $settings.selectionActionsEnabled)

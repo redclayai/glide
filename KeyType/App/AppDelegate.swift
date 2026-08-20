@@ -132,10 +132,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // asked about sentences the spell checker had nothing to say about.
             proofreader: LayeredRewriter(sources: [
                 SystemProofreader(),
+                // Both grammar engines are always in the stack; each declines unless it is the one
+                // selected. Cheaper than rebuilding the graph when the setting changes, and it means
+                // the switch takes effect on the next keystroke rather than the next launch.
                 ModelSentenceRewriter(
                     service: rewriteService,
                     modelFilenameProvider: modelFilename,
-                    isEnabledProvider: { settings.aiGrammarEnabled }
+                    isEnabledProvider: { settings.aiGrammarEnabled && settings.grammarBackend == .local }
+                ),
+                CloudSentenceRewriter(
+                    backend: .anthropic,
+                    model: { settings.grammarModel },
+                    apiKey: { APIKeyStore().key(for: .anthropic) },
+                    isEnabled: { settings.aiGrammarEnabled && settings.grammarBackend == .anthropic }
+                ),
+                CloudSentenceRewriter(
+                    backend: .gemini,
+                    model: { settings.grammarModel },
+                    apiKey: { APIKeyStore().key(for: .gemini) },
+                    isEnabled: { settings.aiGrammarEnabled && settings.grammarBackend == .gemini }
                 )
             ]),
             replacer: PasteboardTextReplacer(

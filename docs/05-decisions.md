@@ -3601,3 +3601,40 @@ text. Both are now closed:
   rewrite taking longer than 15 seconds is a problem in its own right. The general lesson: when a
   single method owns both "should I show this" and "should I hide this", every guard added for the
   former silently disables the latter.
+
+## ADR-117 — A selectable grammar backend, with the local model still the default
+
+- Date: 2026-08-20
+- Status: accepted
+- Context: The 2B local base model is the weakest link in the rewrite path. A hosted frontier model
+  corrects better, and the user asked to be able to choose one.
+- Decision: `RewriteBackend` (local / anthropic / gemini) selected in Settings, with the API key in
+  the **Keychain** rather than `UserDefaults` — a preference plist is readable by anything running as
+  the user, and this is a credential that can spend money. The model name is an editable field, since
+  provider model names change more often than this app ships and a hardcoded name that 404s is
+  indistinguishable from a broken feature. A Test button surfaces the provider's own error text for
+  the same reason. All three engines sit in the `LayeredRewriter` permanently and each declines
+  unless it is the selected one, so switching takes effect on the next keystroke rather than the next
+  launch.
+- Consequences: Local remains the default and the only zero-cost, offline option, and the Settings
+  copy says plainly when text starts leaving the machine. Crucially `ModelRewriteGate` applies
+  unchanged: a frontier model is *more* likely to return polished prose, which is exactly what the
+  gate rejects — someone who paused mid-sentence asked for their errors fixed, not their voice
+  replaced. Requests are made as late and as rarely as possible (sentence boundary, after a pause,
+  only when the spelling pass found nothing) because each one costs money. Secure fields are checked
+  before any request is built, and there is a test asserting no request is sent for them.
+
+## ADR-118 — No consumer-account backend
+
+- Date: 2026-08-20
+- Status: accepted
+- Context: The request was to drive a consumer Gemini subscription instead of the paid API, to avoid
+  token costs.
+- Decision: Not built. A consumer plan exposes no API; reaching it requires lifting Google auth
+  cookies out of the browser and replaying them against private endpoints — credential extraction
+  plus circumvention of access controls, which also risks the user's Google account and breaks
+  whenever Google changes anything.
+- Consequences: The cost premise it rested on does not hold anyway — at this app's request rate a
+  paid key costs on the order of a dollar a month, because a request is only made at a sentence
+  boundary after a pause. The legitimate zero-cost paths are the local model (default) and Google AI
+  Studio's free API tier, which issues a real key the `gemini` backend already accepts.
