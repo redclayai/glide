@@ -3577,3 +3577,27 @@ text. Both are now closed:
   prevent, and a metric that rewards the failure mode will eventually be optimised toward it. Time
   saved is derived from characters not retyped at 5 characters/second and labelled as an estimate.
   Storage is bounded JSON with no captured text.
+
+## ADR-116 — The selection popover gets an unconditional dismissal cap and an Escape key
+
+- Date: 2026-08-19
+- Status: accepted
+- Context: The Polish/Grammar popover was reported stuck on screen with no way to close it. Every
+  dismissal rule lived inside `poll()` *after* an early return — `guard !isBusy` for a rewrite in
+  flight, and an unbounded `bundle.hasPrefix("app.glide")` exemption meant to tolerate the popover
+  briefly taking focus. Either could stop dismissal being considered at all, and the second became
+  easy to hit once Glide gained windows of its own: opening Settings or the stats window leaves
+  Glide focused indefinitely, so the popover froze. Compounding it, there was no user-facing
+  dismissal at all — no key, no click-away, no close button — so when the automatic rules failed the
+  user had no recourse.
+- Decision: Three changes. A 15-second visibility cap checked *before* any early return, so no
+  branch can skip it. The self-focus exemption is bounded to three polls — brief self-focus is the
+  popover, sustained self-focus means the user has moved to a Glide window and is no longer editing
+  the text. And Escape dismisses it, passed through rather than swallowed, because Escape almost
+  always means something in the app the user is actually working in.
+- Consequences: "Stuck forever" is now structurally impossible rather than merely unlikely, which is
+  the right standard for an overlay that covers the user's document. The cap can in principle hide a
+  popover whose rewrite is still running; the replacement still lands when it completes, and a
+  rewrite taking longer than 15 seconds is a problem in its own right. The general lesson: when a
+  single method owns both "should I show this" and "should I hide this", every guard added for the
+  former silently disables the latter.
