@@ -8,6 +8,15 @@
         <description>Updates for Glide</description>
         <language>en</language>
         <item>
+            <title>0.11</title>
+            <pubDate>Thu, 20 Aug 2026 12:42:42 -0400</pubDate>
+            <link>https://github.com/redclayai/glide</link>
+            <sparkle:version>11</sparkle:version>
+            <sparkle:shortVersionString>0.11</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/redclayai/glide/releases/download/v0.11/Glide-0.11.dmg" length="13076378" type="application/octet-stream" sparkle:edSignature="IAF6XUraVeiMmtC3zej5kRRcYt0v4xm7l3i4Kt/atNiZ6Ef/m8D7rkaP2t/g1ZQqU5BCmx+0TB1ZORx1b9cRAQ=="/>
+        </item>
+        <item>
             <title>0.10</title>
             <pubDate>Wed, 19 Aug 2026 19:21:09 -0400</pubDate>
             <link>https://github.com/redclayai/glide</link>
@@ -24,15 +33,6 @@
             <sparkle:shortVersionString>0.9</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <enclosure url="https://github.com/redclayai/glide/releases/download/v0.9/Glide-0.9.dmg" length="12959155" type="application/octet-stream" sparkle:edSignature="frb76nE5x4JyKvHoACIuIPkmsf0W8847upJjRDi41utgJDB0uOoCHlnk0jq1Cqw7FQutfzJRPm+yWNLnanVNCw=="/>
-        </item>
-        <item>
-            <title>0.8</title>
-            <pubDate>Wed, 19 Aug 2026 18:44:18 -0400</pubDate>
-            <link>https://github.com/redclayai/glide</link>
-            <sparkle:version>8</sparkle:version>
-            <sparkle:shortVersionString>0.8</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/redclayai/glide/releases/download/v0.8/Glide-0.8.dmg" length="13582965" type="application/octet-stream" sparkle:edSignature="iCFTiPaPzOcsWgL7pzXjFEr5ZzgzJGP1CCZxf5GivSi32jQaToolUr58JI/KW+HbsjRXHQlts4/58KE8kVWJBw=="/>
         </item>
     </channel>
 </rss>
