@@ -159,13 +159,17 @@ struct OnboardingView: View {
 
     private var welcomeStep: some View {
         VStack(spacing: 18) {
-            Image(systemName: "text.cursor")
-                .font(.system(size: 44, weight: .regular))
-                .foregroundStyle(.tint)
-                .padding(.top, 8)
+            // The real app icon rather than a stand-in symbol: it is the thing the user just
+            // dragged to Applications and will look for in their Dock, and reading it from the
+            // bundle means it can never drift out of sync with the icon the app actually ships.
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .frame(width: 72, height: 72)
+                .accessibilityHidden(true)
+                .padding(.top, 4)
             Text("Welcome to Glide")
                 .font(.title.weight(.semibold))
-            Text("On-device tab-autocomplete for any text field on your Mac. Private by default, powered by a local model.")
+            Text("Finishes your sentences and fixes them, in any app on your Mac. Runs on device by default — nothing you type leaves the machine.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
