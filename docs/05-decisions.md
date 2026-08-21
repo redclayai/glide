@@ -3787,3 +3787,23 @@ text. Both are now closed:
   the log would have been the wrong fix and redacting it is the right one. Purging at launch is
   deliberate; a fix that only protected new writes would leave every existing install still holding
   whatever it had already collected.
+
+## ADR-127 — Liquid Glass on the selection popover, gated, with the radius derived from height
+
+- Date: 2026-08-21
+- Status: accepted
+- Context: The popover was an 8pt-radius `NSVisualEffectView` with `.menu` material — the visual
+  language of an older macOS — and its dismiss control sat in a 10pt gap with nothing tying it to
+  the panel.
+- Decision: `NSGlassEffectView` behind `if #available(macOS 26, *)`, falling back to the existing
+  material. Corner radius derives from the panel's height (`min(height/2, 16)`) rather than a fixed
+  number, so a short action bar is a capsule and stays right if the content grows. A hairline
+  separator replaces the gap before the dismiss control.
+- Consequences: The **app target** deploys to macOS 14.0 — the 26.4 deployment targets in the
+  project are project- and test-level only — so glass could not be adopted outright; checking that
+  before writing the code was the difference between a gated adoption and a build that excludes most
+  of the stated minimum OS. Judged from a live on-screen capture, not an offscreen render:
+  `NSGlassEffectView` samples what is behind the *window*, so `cacheDisplay` shows it as fully
+  transparent and tells you nothing. On a white document the glass is close to a wash — the radius
+  and separator are the parts that clearly earn their place. The buttons were deliberately left
+  alone: their click handling was hard-won (ADR-119) and restyling them risks more than it gains.
