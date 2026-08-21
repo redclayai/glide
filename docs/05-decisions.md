@@ -3638,3 +3638,51 @@ text. Both are now closed:
   paid key costs on the order of a dollar a month, because a request is only made at a sentence
   boundary after a pause. The legitimate zero-cost paths are the local model (default) and Google AI
   Studio's free API tier, which issues a real key the `gemini` backend already accepts.
+
+## ADR-119 — The selection popover must be able to become key, and anchor to the selection
+
+- Date: 2026-08-20
+- Status: accepted
+- Context: The Polish/Grammar buttons did nothing, and the panel sat on top of the user's text. The
+  dev log settled both: `popover presented` appeared with no matching `perform` line, so the action
+  was never sent; and the anchor rect logged as `{2, 27}` — the caret, not the selection.
+- Decision: `canBecomeKey` returns true. A borderless `.nonactivatingPanel` that refuses key status
+  never routes a click through to its controls, so `NSButton`'s action never fires; `.nonactivatingPanel`
+  alone already provides the property actually wanted, which is that the *app* does not activate and
+  the user stays in their document. Separately the anchor now prefers `AX.selectionRect` over the
+  caret rect, and the gap above it went from 6pt to 12pt.
+- Consequences: The buttons work. Anchoring to a 2pt-wide caret meant the panel was centred on one
+  end of the selection and placed relative to a line the selection might not start on, which is how
+  it ended up over the text; the selection's own bounds put it where the user expects.
+
+## ADR-120 — A wrong default model is indistinguishable from a broken feature
+
+- Date: 2026-08-20
+- Status: accepted
+- Context: The Gemini backend never produced a suggestion. The model default shipped in 0.12 was
+  `gemini-2.5-flash`, which Google had retired: every request returned 404, `try?` swallowed it, and
+  the pass silently produced nothing. Making the model name editable was the right instinct and did
+  not help, because nobody edits a field that appears to be correct.
+- Decision: Default corrected to `gemini-3.6-flash`, verified against the live API. More importantly
+  the cloud path now logs — key missing, HTTP failure with the provider's message, gate rejection —
+  to the same prediction log as everything else, and a 429 starts a 75-second cooldown so an
+  exhausted free-tier quota does not become a hammering loop.
+- Consequences: This is the third time in this project that a silent `try?` turned a specific,
+  fixable error into "the feature does nothing" (see also ADR-109, and the stats date-strategy bug).
+  The rule to take from it: any path that can fail on someone else's infrastructure logs the reason,
+  and a default that names an external resource is a liability with a shelf life.
+
+## ADR-121 — The sentence cap follows what can be applied, not what can be displayed
+
+- Date: 2026-08-20
+- Status: accepted
+- Context: `TrailingSentenceScanner.maximumCharacters` was 140, chosen when the capsule was a single
+  line and a longer sentence could not have been read. That silently refused ordinary prose — a
+  two-clause sentence in an email passes 140 easily — which presented as the grammar pass not working
+  on real writing.
+- Decision: Raised to 220. The capsule wraps since ADR-114, so display is no longer the binding
+  constraint; the real bound is `maximumReplacementKeystrokes` (256), because the keystroke fallback
+  costs one synthesized key per grapheme and a longer proposal could never be applied.
+- Consequences: Full sentences of normal length are now eligible. A limit set for a UI constraint
+  outlived the constraint, which is worth watching for whenever a number is justified by two reasons
+  and only one of them changes.

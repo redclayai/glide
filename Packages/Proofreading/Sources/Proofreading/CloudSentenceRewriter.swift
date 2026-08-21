@@ -44,6 +44,12 @@ public final class CloudSentenceRewriter: SentenceRewriting {
     private let transport: Transport
     private let debounceNanoseconds: UInt64
     private let unterminatedDebounceNanoseconds: UInt64
+    /// Where failures go. Without it every error was swallowed by a `try?` and the feature simply
+    /// produced nothing — which is precisely how a retired model name shipped unnoticed.
+    private let log: ((String) -> Void)?
+    /// Set after a 429. A free-tier key is rate limited per minute, and hammering it turns one
+    /// exhausted quota into a permanently broken feature.
+    private var cooldownUntil: Date?
 
     public init(
         backend: RewriteBackend,
@@ -52,7 +58,8 @@ public final class CloudSentenceRewriter: SentenceRewriting {
         isEnabled: @escaping () -> Bool = { true },
         transport: Transport? = nil,
         debounceNanoseconds: UInt64 = 400_000_000,
-        unterminatedDebounceNanoseconds: UInt64 = 1_100_000_000
+        unterminatedDebounceNanoseconds: UInt64 = 1_100_000_000,
+        log: ((String) -> Void)? = nil
     ) {
         self.backend = backend
         self.model = model
@@ -61,12 +68,20 @@ public final class CloudSentenceRewriter: SentenceRewriting {
         self.transport = transport ?? { try await URLSession.shared.data(for: $0) }
         self.debounceNanoseconds = debounceNanoseconds
         self.unterminatedDebounceNanoseconds = unterminatedDebounceNanoseconds
+        self.log = log
     }
 
     public func suggestion(for context: TextFieldContext) async -> RewriteSuggestion? {
         guard isEnabled(), backend.sendsTextOffTheMachine else { return nil }
         guard !context.traits.isSecureTextEntry, !context.traits.isPasswordField else { return nil }
-        guard let key = apiKey() else { return nil }
+        guard let key = apiKey() else {
+            log?("REWRITE cloud=\(backend.rawValue) → SUPPRESS(noKey)")
+            return nil
+        }
+        if let cooldownUntil, Date() < cooldownUntil {
+            log?("REWRITE cloud=\(backend.rawValue) → SUPPRESS(rateLimited, \(Int(cooldownUntil.timeIntervalSinceNow))s left)")
+            return nil
+        }
         guard let scanned = TrailingSentenceScanner.scan(beforeCursor: context.beforeCursor) else { return nil }
         let trailing = scanned.sentence
 
@@ -76,10 +91,22 @@ public final class CloudSentenceRewriter: SentenceRewriting {
         try? await Task.sleep(nanoseconds: debounce)
         guard !Task.isCancelled else { return nil }
 
-        guard let raw = try? await rewrite(trailing.sentence, key: key), !Task.isCancelled else { return nil }
+        let raw: String
+        do {
+            raw = try await rewrite(trailing.sentence, key: key)
+        } catch {
+            // Reported, not swallowed. A wrong key, a renamed model and an exhausted quota are three
+            // different problems that all present as "nothing happens".
+            log?("REWRITE cloud=\(backend.rawValue) model=\(model()) → FAILED(\(error.localizedDescription))")
+            return nil
+        }
+        guard !Task.isCancelled else { return nil }
 
         let candidate = ModelRewriteGate.unwrap(raw)
-        guard ModelRewriteGate.accepts(candidate: candidate, original: trailing.sentence) else { return nil }
+        guard ModelRewriteGate.accepts(candidate: candidate, original: trailing.sentence) else {
+            log?("REWRITE cloud=\(backend.rawValue) → SUPPRESS(gate) \"\(candidate)\"")
+            return nil
+        }
 
         return RewriteSuggestion(
             span: trailing.span,
@@ -100,6 +127,10 @@ public final class CloudSentenceRewriter: SentenceRewriting {
 
     // MARK: - Requests
 
+    /// How long to stop asking after a 429. Long enough to clear a per-minute free-tier window
+    /// without the user having to do anything.
+    nonisolated static let rateLimitCooldown: TimeInterval = 75
+
     nonisolated static let instruction = """
     Fix only the grammar, spelling and punctuation of the sentence below. Keep the wording, meaning \
     and tone. Do not rephrase, do not improve the style, do not add or remove information. Reply \
@@ -111,8 +142,12 @@ public final class CloudSentenceRewriter: SentenceRewriting {
         let (data, response) = try await transport(request)
 
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            if http.statusCode == 429 {
+                cooldownUntil = Date().addingTimeInterval(Self.rateLimitCooldown)
+            }
             throw CloudRewriteError(Self.errorMessage(status: http.statusCode, body: data))
         }
+        cooldownUntil = nil
         return try Self.parse(data, backend: backend)
     }
 

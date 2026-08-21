@@ -49,7 +49,7 @@ final class CloudSentenceRewriterTests: XCTestCase {
         XCTAssertEqual(request.value(forHTTPHeaderField: "anthropic-version"), "2023-06-01")
 
         let body = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
-        XCTAssertEqual(body["model"] as? String, "claude-haiku-4-5")
+        XCTAssertEqual(body["model"] as? String, RewriteBackend.anthropic.defaultModel)
         XCTAssertNotNil(body["max_tokens"], "max_tokens is required by the Messages API")
     }
 
@@ -60,7 +60,11 @@ final class CloudSentenceRewriterTests: XCTestCase {
 
         XCTAssertEqual(request.value(forHTTPHeaderField: "x-goog-api-key"), "AIza-secret")
         XCTAssertFalse(request.url!.absoluteString.contains("AIza-secret"))
-        XCTAssertTrue(request.url!.absoluteString.contains("gemini-2.5-flash:generateContent"))
+        // Asserted against the constant, not a literal: a hardcoded model name here rots exactly
+        // the way the shipped default did.
+        XCTAssertTrue(
+            request.url!.absoluteString.contains("\(RewriteBackend.gemini.defaultModel):generateContent")
+        )
     }
 
     func testLocalBackendRefusesToBuildARequest() {
@@ -177,6 +181,40 @@ final class CloudSentenceRewriterTests: XCTestCase {
         )
         _ = await rewriter.suggestion(for: secure)
         XCTAssertFalse(called, "password fields must never leave the machine")
+    }
+
+    /// A free-tier key is rate limited per minute. Without a cooldown, one exhausted quota turns
+    /// into a feature that hammers the endpoint and never recovers.
+    func testRateLimitStopsFurtherRequestsForACooldown() async {
+        var requests = 0
+        let rewriter = CloudSentenceRewriter(
+            backend: .gemini, model: { RewriteBackend.gemini.defaultModel }, apiKey: { "k" },
+            transport: { _ in
+                requests += 1
+                return httpFailure(429, #"{"error":{"message":"quota"}}"#)
+            },
+            debounceNanoseconds: 0, unterminatedDebounceNanoseconds: 0
+        )
+
+        _ = await rewriter.suggestion(for: context("She dont know the answer yet. "))
+        XCTAssertEqual(requests, 1)
+
+        _ = await rewriter.suggestion(for: context("He dont agree with it at all. "))
+        XCTAssertEqual(requests, 1, "the second attempt must be suppressed by the cooldown")
+    }
+
+    func testFailuresAreReportedRatherThanSwallowed() async {
+        var lines: [String] = []
+        let rewriter = CloudSentenceRewriter(
+            backend: .gemini, model: { "retired-model" }, apiKey: { "k" },
+            transport: { _ in httpFailure(404, #"{"error":{"message":"model not found"}}"#) },
+            debounceNanoseconds: 0, unterminatedDebounceNanoseconds: 0,
+            log: { lines.append($0) }
+        )
+        _ = await rewriter.suggestion(for: context("She dont know the answer yet. "))
+
+        XCTAssertTrue(lines.contains { $0.contains("FAILED") && $0.contains("model not found") },
+                      "a silent failure is how a retired model name shipped unnoticed")
     }
 
     func testHTTPFailureProducesNoSuggestion() async {

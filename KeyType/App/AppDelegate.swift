@@ -144,13 +144,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     backend: .anthropic,
                     model: { settings.grammarModel },
                     apiKey: { APIKeyStore().key(for: .anthropic) },
-                    isEnabled: { settings.aiGrammarEnabled && settings.grammarBackend == .anthropic }
+                    isEnabled: { settings.aiGrammarEnabled && settings.grammarBackend == .anthropic },
+                    log: { [weak completion] line in completion?.predictionLog.append(line) }
                 ),
                 CloudSentenceRewriter(
                     backend: .gemini,
                     model: { settings.grammarModel },
                     apiKey: { APIKeyStore().key(for: .gemini) },
-                    isEnabled: { settings.aiGrammarEnabled && settings.grammarBackend == .gemini }
+                    isEnabled: { settings.aiGrammarEnabled && settings.grammarBackend == .gemini },
+                    log: { [weak completion] line in completion?.predictionLog.append(line) }
                 )
             ]),
             replacer: PasteboardTextReplacer(

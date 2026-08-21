@@ -42,11 +42,15 @@ public enum TrailingSentenceScanner {
     static let minimumCharacters = 16
     static let minimumWords = 3
 
-    /// Two constraints, and the tighter one wins. It has to stay under
-    /// `maximumReplacementKeystrokes` (256) or a proposal could never be applied through the
-    /// keystroke fallback — but it also has to fit in the capsule under the caret, because asking
-    /// someone to accept a sentence they cannot fully read is worse than not offering it.
-    static let maximumCharacters = 140
+    /// Bounded by what can actually be *applied*: the keystroke fallback costs one synthesized key
+    /// per grapheme and `maximumReplacementKeystrokes` caps that at 256, so a longer sentence could
+    /// be proposed and never inserted.
+    ///
+    /// It was 140 while the capsule was a single line and a long sentence would have been unreadable.
+    /// The capsule wraps now, so display is no longer the binding constraint — and 140 was quietly
+    /// refusing ordinary prose: a two-clause sentence in an email runs past it easily, which read as
+    /// "it doesn't work on real sentences".
+    static let maximumCharacters = 220
 
     /// Content that means this is not prose the model should touch: code, paths, URLs, addresses,
     /// markup. The model will happily "fix" all of it into something that no longer works.

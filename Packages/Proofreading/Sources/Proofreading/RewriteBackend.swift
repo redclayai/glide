@@ -36,12 +36,15 @@ public enum RewriteBackend: String, CaseIterable, Sendable, Codable {
     public var sendsTextOffTheMachine: Bool { self != .local }
 
     /// Sensible starting model. Editable in Settings, because provider model names change more often
-    /// than this app ships and a hardcoded name that 404s looks like a broken feature.
+    /// than this app ships and a hardcoded name that 404s looks like a broken feature — which is
+    /// exactly what shipped in 0.12: `gemini-2.5-flash` had been retired, so every request came back
+    /// 404 and the pass silently produced nothing. The editable field was the right idea; the wrong
+    /// default still made the feature look dead.
     public var defaultModel: String {
         switch self {
         case .local: return ""
         case .anthropic: return "claude-haiku-4-5"
-        case .gemini: return "gemini-2.5-flash"
+        case .gemini: return "gemini-3.6-flash"
         }
     }
 

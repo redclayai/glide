@@ -107,6 +107,23 @@ final class TrailingSentenceScannerTests: XCTestCase {
         XCTAssertNil(TrailingSentenceScanner.scanTerminated(beforeCursor: long))
     }
 
+    /// An ordinary two-clause sentence must not be refused for length — the old 140-character cap
+    /// rejected sentences this size, which read as the feature not working on real writing.
+    func testAcceptsAnOrdinaryLongSentence() {
+        let sentence = "I have one that is new construction but they moved things into the "
+            + "apartment so it needs a review of record before we can close on it. "
+        XCTAssertEqual(sentence.trimmingCharacters(in: .whitespaces).count, 134)
+        XCTAssertNotNil(TrailingSentenceScanner.scanTerminated(beforeCursor: sentence))
+
+        let longer = "We should confirm whether the affiliated lender covers all construction "
+            + "renewals or just the ones we are waiving the review of record for, because the "
+            + "answer changes the timeline. "
+        XCTAssertNotNil(
+            TrailingSentenceScanner.scanTerminated(beforeCursor: longer),
+            "a 180-character sentence is ordinary prose, not an outlier"
+        )
+    }
+
     /// The scanner's cap has to stay under the replacement keystroke bound, or it could propose a
     /// fix that the keystroke fallback is unable to apply.
     func testMaximumStaysWithinTheReplacementBound() {
