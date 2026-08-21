@@ -3724,3 +3724,21 @@ text. Both are now closed:
   writes one short word with no preceding keystrokes, where a paste is both safe and better at
   preserving styling. Same mechanism, opposite correct answer, because the surrounding conditions
   differ — worth remembering before "unifying" the two.
+
+## ADR-124 — A typed terminator is a stronger trigger than a pause, and gets a shorter wait
+
+- Date: 2026-08-21
+- Status: accepted
+- Context: Both triggers shared a debounce scaled for the weaker one. A pause is circumstantial —
+  someone may simply be thinking mid-clause — so it earns a long wait. A typed `.` `!` or `?` is the
+  writer stating the sentence is finished, and making that wait as long only makes the app feel slow
+  at the moment it has the clearest signal available.
+- Decision: The terminated debounce drops from 400 ms to 150 ms; the unterminated pause stays at
+  1.1 s. Still debounced rather than immediate, so someone typing straight into the next sentence
+  cancels the check before any model is asked.
+- Consequences: Firing promptly on a terminator makes a *false* terminator visible, where the longer
+  wait used to absorb it, so `scanTerminated` now applies the same `isSentenceBreak` test to the
+  trailing terminator that it already used when walking back to find the start. "We should ask Dr. ",
+  "the rate moved to 3.5 " and "the author is J. " are no longer finished sentences — abbreviation,
+  decimal point, initial. That check existed and was simply not applied at the trigger end, which is
+  the sort of asymmetry worth looking for whenever the same question is asked in two places.

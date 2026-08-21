@@ -22,10 +22,12 @@
 //      next AX snapshot, so a typist who keeps going cancels the sleep and inference never starts.
 //      Only an actual pause reaches the model.
 //
-//  The debounce is longer for a sentence with no terminator. A finished sentence is settled and can
-//  be checked promptly; a fragment might just be a thought in progress, and only a real pause says
-//  otherwise. Requiring the terminator outright — the first version of this — meant the feature
-//  almost never fired, because people don't type the final period before sending a chat message.
+//  The two debounces differ because the two triggers carry different weight. A typed terminator is
+//  the writer saying "this sentence is done", so the check runs almost immediately — waiting longer
+//  only makes the app feel slow at the exact moment it has the clearest possible signal. A pause is
+//  circumstantial by comparison and gets the longer wait, because a fragment might be a thought in
+//  progress. Requiring the terminator outright — the first version of this — meant the feature almost
+//  never fired, because people don't type the final period before sending a chat message.
 //
 //  Everything the model returns is then treated as untrusted: see `ModelRewriteGate`.
 //
@@ -48,7 +50,7 @@ final class ModelSentenceRewriter: SentenceRewriting {
         service: RewriteService,
         modelFilenameProvider: @escaping () -> String,
         isEnabledProvider: @escaping () -> Bool = { true },
-        debounceNanoseconds: UInt64 = 400_000_000,
+        debounceNanoseconds: UInt64 = 150_000_000,
         unterminatedDebounceNanoseconds: UInt64 = 1_100_000_000
     ) {
         self.service = service

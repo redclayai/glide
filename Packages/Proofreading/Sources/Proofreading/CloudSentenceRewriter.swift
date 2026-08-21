@@ -57,7 +57,7 @@ public final class CloudSentenceRewriter: SentenceRewriting {
         apiKey: @escaping () -> String?,
         isEnabled: @escaping () -> Bool = { true },
         transport: Transport? = nil,
-        debounceNanoseconds: UInt64 = 400_000_000,
+        debounceNanoseconds: UInt64 = 150_000_000,
         unterminatedDebounceNanoseconds: UInt64 = 1_100_000_000,
         log: ((String) -> Void)? = nil
     ) {

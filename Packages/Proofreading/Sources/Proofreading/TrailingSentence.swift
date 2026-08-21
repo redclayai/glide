@@ -100,9 +100,12 @@ public enum TrailingSentenceScanner {
             if boundary.count > 2 { return nil }
         }
 
-        // The character now behind us must be the terminator that ended the sentence.
+        // The character now behind us must be a terminator that genuinely ends a sentence — the same
+        // test used when walking back to find the start. Without it, "we use e.g. " and "it costs
+        // 3.50 " read as finished sentences, which matters much more now that a typed terminator
+        // fires the check promptly rather than after a pause.
         guard index > beforeCursor.startIndex else { return nil }
-        guard terminators.contains(beforeCursor[beforeCursor.index(before: index)]) else { return nil }
+        guard isSentenceBreak(at: beforeCursor.index(before: index), in: beforeCursor) else { return nil }
 
         // Walk back to the previous sentence terminator, a newline, or the window limit.
         var sentence = ""
@@ -197,17 +200,24 @@ public enum TrailingSentenceScanner {
         guard terminators.contains(character) else { return false }
         guard character == "." else { return true }
 
+        let previousIndex = index > text.startIndex ? text.index(before: index) : nil
+        let previous = previousIndex.map { text[$0] }
+
+        // A decimal point is not a full stop. "3.50" and "v1.2" would otherwise read as sentence
+        // ends, and the digit before the dot is the giveaway.
+        if let previous, previous.isNumber { return false }
+
         var token = ""
         var cursor = index
         while cursor > text.startIndex {
-            let previous = text.index(before: cursor)
-            let candidate = text[previous]
+            let candidate = text[text.index(before: cursor)]
             guard candidate.isLetter else { break }
             token.insert(candidate, at: token.startIndex)
-            cursor = previous
+            cursor = text.index(before: cursor)
             if token.count > 8 { break }
         }
 
+        // A single letter before the dot is an initial — "J. R. R." — not a sentence end.
         if token.count == 1 { return false }
         return !abbreviations.contains(token.lowercased())
     }

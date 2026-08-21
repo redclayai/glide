@@ -137,3 +137,37 @@ final class TrailingSentenceScannerTests: XCTestCase {
         XCTAssertTrue(TrailingSentenceScanner.isProse("i has went to the store."))
     }
 }
+
+// MARK: - What counts as a finished sentence
+
+/// A typed terminator now fires the check promptly, so a period that isn't a full stop shows up as a
+/// spurious suggestion rather than being quietly absorbed by a longer wait.
+final class SentenceTerminatorTests: XCTestCase {
+    func testAbbreviationIsNotAFinishedSentence() {
+        XCTAssertNil(TrailingSentenceScanner.scanTerminated(beforeCursor: "We should ask Dr. "))
+        XCTAssertNil(TrailingSentenceScanner.scanTerminated(beforeCursor: "Use a wrench, e.g. "))
+    }
+
+    func testDecimalPointIsNotAFinishedSentence() {
+        XCTAssertNil(TrailingSentenceScanner.scanTerminated(beforeCursor: "The rate moved to 3.5 "))
+        XCTAssertNil(TrailingSentenceScanner.scanTerminated(beforeCursor: "We shipped version 1.2 "))
+    }
+
+    func testInitialIsNotAFinishedSentence() {
+        XCTAssertNil(TrailingSentenceScanner.scanTerminated(beforeCursor: "The author is J. "))
+    }
+
+    func testOrdinarySentenceStillCounts() {
+        XCTAssertNotNil(TrailingSentenceScanner.scanTerminated(beforeCursor: "i has went to the store. "))
+        XCTAssertNotNil(TrailingSentenceScanner.scanTerminated(beforeCursor: "did you send the files yet? "))
+        XCTAssertNotNil(TrailingSentenceScanner.scanTerminated(beforeCursor: "that was not what we agreed! "))
+    }
+
+    /// The abbreviation must not block a sentence that legitimately ends after one.
+    func testSentenceEndingAfterAnAbbreviationCounts() {
+        let trailing = TrailingSentenceScanner.scanTerminated(
+            beforeCursor: "We should ask Dr. Ramirez about it. "
+        )
+        XCTAssertEqual(trailing?.sentence, "We should ask Dr. Ramirez about it.")
+    }
+}
