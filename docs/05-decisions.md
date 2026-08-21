@@ -3686,3 +3686,20 @@ text. Both are now closed:
 - Consequences: Full sentences of normal length are now eligible. A limit set for a UI constraint
   outlived the constraint, which is worth watching for whenever a number is justified by two reasons
   and only one of them changes.
+
+## ADR-122 — Honour the provider's retry delay, and name the quota bucket
+
+- Date: 2026-08-21
+- Status: accepted
+- Context: The 429 handling added in 0.13 waited a flat 75 seconds. Gemini's own 429 says "Please
+  retry in 41.1s" and carries a `retryDelay`, so a fixed wait either returns too early or sits out
+  quota the user already has back. Worse, the log said only "rate limited", while the body named the
+  bucket: `generate_content_free_tier_requests, limit: 20`. That string is the whole diagnosis — it
+  means the key is metered on the free tier, which no amount of waiting fixes.
+- Decision: Prefer `retry-after`, then a delay parsed from the body, then the fallback (now 60s),
+  clamped to 15 minutes. Log the quota metric alongside the wait, and when the metric mentions
+  `free_tier`, say so in the error text with a pointer at billing rather than "out of quota".
+- Consequences: Backoff matches reality, and the log now distinguishes "wait a moment" from "this key
+  will never work at this volume". Also corrects a claim I made from a single observation: the free
+  tier is 20 requests **per minute**, not ~20 in total — the retry hints are seconds, not hours. Worth
+  remembering that a rate limit read off one error message is a guess until the delay is read too.

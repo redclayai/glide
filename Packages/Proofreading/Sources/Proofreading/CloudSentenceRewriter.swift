@@ -127,9 +127,36 @@ public final class CloudSentenceRewriter: SentenceRewriting {
 
     // MARK: - Requests
 
-    /// How long to stop asking after a 429. Long enough to clear a per-minute free-tier window
-    /// without the user having to do anything.
-    nonisolated static let rateLimitCooldown: TimeInterval = 75
+    /// Fallback cooldown after a 429 when the provider does not say when to retry. Providers usually
+    /// do say, and `retryDelay(in:)` prefers their answer — a blanket wait sits out quota the user
+    /// has already got back.
+    nonisolated static let rateLimitCooldown: TimeInterval = 60
+
+    /// Longest we will sit out on a provider's say-so, in case one reports something absurd.
+    nonisolated static let maximumCooldown: TimeInterval = 15 * 60
+
+    /// Pull the retry delay out of a 429 body. Gemini reports a `retryDelay` in its error details and
+    /// also says "Please retry in 41.1s" in the message; Anthropic uses a `retry-after` header,
+    /// which the caller checks first.
+    nonisolated static func retryDelay(in body: Data) -> TimeInterval? {
+        guard let text = String(data: body, encoding: .utf8) else { return nil }
+        for pattern in [#"retryDelay\D+([0-9.]+)s"#, #"retry in ([0-9.]+)s"#] {
+            guard let range = text.range(of: pattern, options: .regularExpression) else { continue }
+            let digits = text[range].filter { $0.isNumber || $0 == "." }
+            if let seconds = Double(digits), seconds > 0 { return seconds }
+        }
+        return nil
+    }
+
+    /// The quota bucket the provider counted the request against, when it says so. Surfaced because
+    /// "free_tier" in this string is the difference between "rate limited, wait a moment" and
+    /// "billing is not enabled on this key" — which need completely different fixes.
+    nonisolated static func quotaMetric(in body: Data) -> String? {
+        guard let text = String(data: body, encoding: .utf8),
+              let range = text.range(of: #"metric: [a-zA-Z0-9._/]+"#, options: .regularExpression)
+        else { return nil }
+        return String(text[range].dropFirst("metric: ".count))
+    }
 
     nonisolated static let instruction = """
     Fix only the grammar, spelling and punctuation of the sentence below. Keep the wording, meaning \
@@ -143,7 +170,15 @@ public final class CloudSentenceRewriter: SentenceRewriting {
 
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
             if http.statusCode == 429 {
-                cooldownUntil = Date().addingTimeInterval(Self.rateLimitCooldown)
+                // Honour what the provider says rather than guessing: it knows when the window
+                // reopens, and a blanket wait either returns too early or wastes quota.
+                let advised = (http.value(forHTTPHeaderField: "retry-after").flatMap(Double.init))
+                    ?? Self.retryDelay(in: data)
+                let wait = min(max(advised ?? Self.rateLimitCooldown, 1), Self.maximumCooldown)
+                cooldownUntil = Date().addingTimeInterval(wait)
+                let metric = Self.quotaMetric(in: data) ?? "unspecified"
+                log?("REWRITE cloud=" + backend.rawValue + " -> RATE LIMITED "
+                     + String(Int(wait)) + "s (quota: " + metric + ")")
             }
             throw CloudRewriteError(Self.errorMessage(status: http.statusCode, body: data))
         }
@@ -242,7 +277,13 @@ public final class CloudSentenceRewriter: SentenceRewriting {
         switch status {
         case 401, 403: hint = "Check the API key."
         case 404: hint = "Check the model name."
-        case 429: hint = "Rate limited or out of quota."
+        case 429:
+            // Naming the bucket turns a vague "out of quota" into something actionable.
+            if let metric = quotaMetric(in: body), metric.contains("free_tier") {
+                hint = "This key is metered on the free tier - check that billing is enabled on its project."
+            } else {
+                hint = "Rate limited or out of quota."
+            }
         default: hint = ""
         }
 

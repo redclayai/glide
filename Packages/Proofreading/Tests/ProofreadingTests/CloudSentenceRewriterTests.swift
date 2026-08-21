@@ -224,3 +224,54 @@ final class CloudSentenceRewriterTests: XCTestCase {
         XCTAssertNil(suggestion)
     }
 }
+
+// MARK: - Rate-limit handling
+
+@MainActor
+final class CloudRateLimitTests: XCTestCase {
+    /// The real body Gemini returns, trimmed. It says when to retry and which bucket it counted
+    /// against; both are more useful than a fixed guess.
+    private static let geminiQuotaBody = Data("""
+    {"error":{"code":429,"message":"You exceeded your current quota. \
+    * Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, \
+    limit: 20, model: gemini-3.6-flash\\nPlease retry in 41.114340752s.","status":"RESOURCE_EXHAUSTED"}}
+    """.utf8)
+
+    func testReadsTheProvidersRetryDelay() {
+        let delay = CloudSentenceRewriter.retryDelay(in: Self.geminiQuotaBody)
+        XCTAssertNotNil(delay)
+        XCTAssertEqual(delay ?? 0, 41.11, accuracy: 0.5)
+    }
+
+    func testReadsARetryDelayFromStructuredDetails() {
+        let body = Data(#"{"error":{"details":[{"@type":"...RetryInfo","retryDelay":"7s"}]}}"#.utf8)
+        XCTAssertEqual(CloudSentenceRewriter.retryDelay(in: body) ?? 0, 7, accuracy: 0.01)
+    }
+
+    func testNoDelayWhenTheProviderDoesNotSay() {
+        XCTAssertNil(CloudSentenceRewriter.retryDelay(in: Data(#"{"error":{"code":429}}"#.utf8)))
+    }
+
+    func testExtractsTheQuotaMetric() {
+        XCTAssertEqual(
+            CloudSentenceRewriter.quotaMetric(in: Self.geminiQuotaBody),
+            "generativelanguage.googleapis.com/generate_content_free_tier_requests"
+        )
+    }
+
+    /// The distinction that matters: a free-tier bucket means billing is not enabled on the key,
+    /// which no amount of waiting fixes.
+    func testFreeTierQuotaProducesABillingHint() {
+        let message = CloudSentenceRewriter.errorMessage(status: 429, body: Self.geminiQuotaBody)
+        XCTAssertTrue(message.contains("free tier"))
+        XCTAssertTrue(message.contains("billing"))
+    }
+
+    func testUnattributedQuotaKeepsTheGenericHint() {
+        let message = CloudSentenceRewriter.errorMessage(
+            status: 429, body: Data(#"{"error":{"message":"slow down"}}"#.utf8)
+        )
+        XCTAssertTrue(message.contains("Rate limited"))
+        XCTAssertFalse(message.contains("billing"))
+    }
+}
