@@ -3849,3 +3849,25 @@ text. Both are now closed:
   the caller instead of being swallowed, because a selection rewrite happens while the user watches a
   spinner. Note `CloudSentenceRewriter` is now misnamed — it handles selections too; a rename was
   deferred rather than churn 93 tests mid-change.
+
+## ADR-130 — Both floating surfaces implement the Claude Design 1A variant
+
+- Date: 2026-08-21
+- Status: accepted
+- Context: The surfaces had been tuned incrementally — a radius here, a grey there — with no single
+  source for the geometry. A design project ("AppleOS popovers redesign") specified them properly,
+  in two variants: **1A** appleOS (neutral translucent surfaces, raised white action pills, grey Tab
+  chip) and **2A** Liquid Glass (capsule geometry, blue-tinted actions and chip).
+- Decision: Implement 1A, with every value in one `SuggestionStyle` file. 1A over 2A because its
+  neutral surfaces and grey chip match the grey these surfaces were deliberately given, where 2A
+  tints both blue; and because 1A needs no macOS 26 gating, where 2A's capsule glass does. Values are
+  transcribed rather than approximated — the half-pixel hairlines and the two-layer shadow (contact +
+  ambient) are what make a surface read as floating rather than filled.
+- Consequences: 2A is now a small change: every value it differs on is a constant in one file, and
+  the toolbar radius comment names what to switch. The action buttons became a `ToolbarPillButton`
+  `NSButton` subclass that styles its *layer* and leaves `bezelStyle`, target/action and
+  `acceptsFirstMouse` untouched — deliberately, because that click path took several attempts to get
+  right (ADR-119) and rebuilding it in SwiftUI to gain styling would risk the one behaviour hardest
+  to recover. The design's `popIn .22s cubic-bezier(.32,.72,0,1)` replaces the hand-picked spring on
+  both surfaces, so they now share a curve as well as a direction. Removed `FirstMouseButton` and the
+  two `configure` helpers, which the swap orphaned.
