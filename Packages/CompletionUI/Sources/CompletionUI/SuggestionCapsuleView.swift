@@ -25,11 +25,20 @@ public struct SuggestionCapsuleView: View {
     public var font: NSFont
     public var showsAcceptHint: Bool
 
+    /// Drives the entrance. A fresh view is built on every show, so this starts false each time and
+    /// `onAppear` animates it — no external trigger needed.
+    @State private var appeared = false
+
     public init(diff: RewriteDiff, font: NSFont = .systemFont(ofSize: NSFont.systemFontSize), showsAcceptHint: Bool = true) {
         self.diff = diff
         self.font = font
         self.showsAcceptHint = showsAcceptHint
     }
+
+    /// Fast, and settles without overshoot on purpose. This appears many times an hour directly over
+    /// what someone is reading; a bouncy entrance would pull the eye every single time, which is the
+    /// opposite of what a suggestion offered mid-sentence should do.
+    static let entrance = Animation.spring(response: 0.26, dampingFraction: 0.9)
 
     public static let horizontalPadding: CGFloat = 14
     public static let verticalPadding: CGFloat = 10
@@ -52,10 +61,12 @@ public struct SuggestionCapsuleView: View {
 
     public var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Image(systemName: "sparkle")
-                .font(.system(size: NSFont.systemFontSize * 0.85, weight: .medium))
+            // Glide's own mark rather than a generic sparkle: this surface should be identifiable as
+            // the app at a glance, and the caret-and-trail is what the icon and menu bar already use.
+            GlideMark(size: NSFont.systemFontSize)
                 .foregroundStyle(Color.accentColor)
-                .accessibilityHidden(true)
+                .offset(x: appeared ? 0 : -3)
+                .opacity(appeared ? 1 : 0)
 
             Text(attributed)
                 .font(Font(font as CTFont))
@@ -89,6 +100,14 @@ public struct SuggestionCapsuleView: View {
                         .strokeBorder(Color.primary.opacity(0.10), lineWidth: 1)
                 )
         )
+        // Rises the couple of points it sits below the caret and settles — the direction reads as
+        // "this belongs to the line above", which is exactly what it is attached to.
+        .scaleEffect(appeared ? 1 : 0.96, anchor: .topLeading)
+        .offset(y: appeared ? 0 : -4)
+        .opacity(appeared ? 1 : 0)
+        .onAppear {
+            withAnimation(Self.entrance) { appeared = true }
+        }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Suggested correction: \(diff.segments.map(\.text).joined())")
     }

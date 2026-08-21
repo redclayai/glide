@@ -3807,3 +3807,22 @@ text. Both are now closed:
   transparent and tells you nothing. On a white document the glass is close to a wash — the radius
   and separator are the parts that clearly earn their place. The buttons were deliberately left
   alone: their click handling was hard-won (ADR-119) and restyling them risks more than it gains.
+
+## ADR-128 — One mark, one entrance, across both floating surfaces
+
+- Date: 2026-08-21
+- Status: accepted
+- Context: The suggestion capsule led with `sparkle`, a generic SF Symbol that identifies nothing, and
+  the selection popover led with nothing at all. The two surfaces appear in the same context, seconds
+  apart, and did not read as the same app.
+- Decision: A drawn `GlideMark` in CompletionUI — the caret-and-trail from the icon, as a `Canvas`
+  shape — used by both. Drawn rather than bundled so it scales to any size, needs no raster assets,
+  and can be reached from both the package and the app target without a second copy of the artwork
+  drifting from the icon. Both surfaces also get the same entrance: a short rise into place, fading
+  in, no overshoot — SwiftUI spring in the capsule, `NSAnimationContext` on the panel, matched in
+  direction and duration.
+- Consequences: The mark is one definition shared by icon (via the same proportions), menu bar,
+  capsule and popover. The entrance is deliberately restrained: this appears many times an hour
+  directly over what someone is reading, and a bouncy animation would pull the eye every single
+  time — the opposite of what a suggestion offered mid-sentence should do. The popover only animates
+  when it was not already visible, so re-presenting for a growing selection does not re-animate.
