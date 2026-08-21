@@ -114,6 +114,7 @@ final class SettingsStore {
         static let proofreadEnabled = "Glide.settings.proofreadEnabled"
         static let aiGrammarEnabled = "Glide.settings.aiGrammarEnabled"
         static let grammarBackend = "Glide.settings.grammarBackend"
+        static let logsCapturedText = "Glide.settings.logsCapturedText"
         static let grammarModel = "Glide.settings.grammarModel"
         static let completionLength = "KeyType.settings.completionLength"
         static let selectedModelFilename = "KeyType.settings.selectedModelFilename"
@@ -169,6 +170,16 @@ final class SettingsStore {
     /// because it costs local inference where the spell check costs nothing.
     var aiGrammarEnabled: Bool {
         didSet { defaults.set(aiGrammarEnabled, forKey: Key.aiGrammarEnabled) }
+    }
+
+    /// Whether the diagnostic logs record the user's own words, or just lengths. Off by default:
+    /// otherwise the log is a plaintext transcript of everything typed, which sits badly beside a
+    /// writing-history database that is encrypted at rest. Structural lines are written either way.
+    var logsCapturedText: Bool {
+        didSet {
+            defaults.set(logsCapturedText, forKey: Key.logsCapturedText)
+            PredictionLog.capturesText = logsCapturedText
+        }
     }
 
     /// Which engine answers the grammar question. Local by default and stays that way unless the
@@ -232,6 +243,7 @@ final class SettingsStore {
         self.selectionActionsEnabled = defaults.object(forKey: Key.selectionActionsEnabled) as? Bool ?? true
         self.proofreadEnabled = defaults.object(forKey: Key.proofreadEnabled) as? Bool ?? true
         self.aiGrammarEnabled = defaults.object(forKey: Key.aiGrammarEnabled) as? Bool ?? true
+        self.logsCapturedText = defaults.object(forKey: Key.logsCapturedText) as? Bool ?? false
         let backend = (defaults.string(forKey: Key.grammarBackend))
             .flatMap(RewriteBackend.init(rawValue:)) ?? .local
         self.grammarBackend = backend

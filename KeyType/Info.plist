@@ -25,8 +25,11 @@
 	<!-- Background menu-bar / agent app: no dock icon (see ADR-005). -->
 	<key>LSUIElement</key>
 	<true/>
+	<!-- Shown in Finder's Get Info and the About panel. Names upstream as well as Red Clay: Glide is
+	     an MIT fork of KeyType, and the copyright field is the natural place to say so in the binary
+	     itself, not only in the LICENSE that ships alongside it. -->
 	<key>NSHumanReadableCopyright</key>
-	<string></string>
+	<string>© 2026 Red Clay AI, Inc. Portions © 2026 Xi Nai Lai (KeyType). MIT licensed.</string>
 	<!-- Sparkle in-app updates (see ADR-051, ADR-114). The feed is served by GitHub Pages out of
 	     docs/ on the public repo. The EdDSA public key matches the private key in this machine's
 	     login keychain — shared with Millie, because Sparkle stores exactly one key per keychain

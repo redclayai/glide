@@ -164,6 +164,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             stats: rewriteStats
         )
         super.init()
+        // Apply before anything can log. The setter keeps them in step afterwards.
+        PredictionLog.capturesText = settings.logsCapturedText
+        // Delete the world-readable /tmp log earlier versions wrote, so upgrading clears the
+        // exposure rather than merely stopping new writes.
+        RewriteLog.purgeLegacyLog()
         acceptance.completionController = completion
         acceptance.proofreadController = proofread
         acceptance.settings = settings

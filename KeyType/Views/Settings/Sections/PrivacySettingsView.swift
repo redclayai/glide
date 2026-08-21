@@ -27,6 +27,14 @@ struct PrivacySettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                Toggle(isOn: $settings.logsCapturedText) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Record my text in diagnostic logs")
+                        Text("Off by default. Glide always logs what it did — which suggestion was shown, why one was suppressed — but not the words themselves. Turn this on only while debugging; it makes the log a plaintext record of what you type.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 Toggle(isOn: $settings.clipboardEnabled) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Use clipboard as context")

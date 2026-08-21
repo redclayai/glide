@@ -3764,3 +3764,26 @@ text. Both are now closed:
   was correct and necessary, and it changed the symptom of this one from "pastes the wrong text" to
   "duplicates the sentence" without touching the cause. Two independent defects in the same code
   path, and fixing the first made the second legible.
+
+## ADR-126 — Diagnostic logs record what happened, not what was written
+
+- Date: 2026-08-21
+- Status: accepted
+- Context: A release review found `RewriteLog` writing to `/tmp/glide-rewrite.log`. `/private/tmp` is
+  mode 1777, so the file sat there world-readable — 515 KB and 435 entries of the user's actual
+  prose, always on, never rotated, readable by any local process. `predictions.log` was better
+  placed (under `~/Library`, which is `drwx------`) but was still a plaintext transcript of
+  everything typed, sitting beside a writing-history database deliberately encrypted at rest with a
+  Keychain passphrase. The inconsistency is the point: the store we designed on purpose is
+  encrypted, the log that accumulated by habit was not.
+- Decision: One gate, `PredictionLog.capturesText`, defaulting to **off**, which every text-
+  formatting helper routes through — so the completion path, the rewrite path and anything added
+  later are covered without each call site remembering. Redacted text becomes `⟨51 chars⟩`, keeping
+  correlation without content. `RewriteLog` moves under Application Support, gains a 512 KB cap, and
+  purges the old `/tmp` file at launch. Settings → Privacy carries the toggle.
+- Consequences: Structural lines — which candidate was shown, which suppression fired, which
+  mechanism applied, how long a span was — are unchanged and always written. That matters more than
+  it sounds: every bug fixed in this app's 0.3–0.18 run was diagnosed from those lines, so deleting
+  the log would have been the wrong fix and redacting it is the right one. Purging at launch is
+  deliberate; a fix that only protected new writes would leave every existing install still holding
+  whatever it had already collected.
