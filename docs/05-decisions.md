@@ -3742,3 +3742,25 @@ text. Both are now closed:
   "the rate moved to 3.5 " and "the author is J. " are no longer finished sentences — abbreviation,
   decimal point, initial. That check existed and was simply not applied at the trigger end, which is
   the sort of asymmetry worth looking for whenever the same question is asked in two places.
+
+## ADR-125 — A synthesized modifier needs a flagsChanged event, and the selection must be verified
+
+- Date: 2026-08-21
+- Status: accepted
+- Context: Accepting a sentence rewrite produced "Okay, this is working well.Ok this is working well."
+  — the replacement typed in front of the original rather than over it. `selectBackward` stamped
+  `.maskShift` on each ⇧← key event but never posted a `flagsChanged` event announcing the modifier.
+  That is sufficient for a Cocoa key *equivalent* like ⌘V, which reads the event's own flags, but
+  text selection tracks the actual modifier state: the arrows arrived as plain caret movement, the
+  caret walked to the start of the span, nothing was selected, and the injection went in at that
+  point.
+- Decision: Bracket the arrow run with real `flagsChanged` events for shift down and up. Separately,
+  before typing over a supposed selection, ask the accessibility layer what is actually selected and
+  abandon the replacement on a mismatch — a new `abandonedSelectionMismatch` outcome, logged. A nil
+  read means the app exposes nothing (most web and Electron fields) and is not treated as "nothing
+  selected", or the fallback would be disabled exactly where it is the only mechanism available.
+- Consequences: The mechanism works, and where an app can be asked, the corrupting failure mode is
+  now a no-op instead. Note the shape of this bug: the *earlier* fix (ADR-123, type instead of paste)
+  was correct and necessary, and it changed the symptom of this one from "pastes the wrong text" to
+  "duplicates the sentence" without touching the cause. Two independent defects in the same code
+  path, and fixing the first made the second legible.

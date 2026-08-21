@@ -70,6 +70,14 @@ public final class AXCaretSpanReplacer: CaretSpanReplacing {
         return verify(replacement: replacement, spanStart: spanStart, on: element)
     }
 
+    public func currentSelection() -> String? {
+        guard let element = AXCaretHelper.focusedElementInFrontmostApplication() else { return nil }
+        let selected = AXCaretHelper.stringValue(for: kAXSelectedTextAttribute as CFString, on: element)
+        // An empty string is a real answer — "the caret is collapsed" — and must not be flattened
+        // into nil, because that is exactly the state worth catching.
+        return selected
+    }
+
     // MARK: - Helpers
 
     private func setRange(_ range: NSRange, attribute: CFString, on element: AXUIElement) -> Bool {

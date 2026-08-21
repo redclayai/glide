@@ -106,6 +106,7 @@ public final class CGEventKeystrokeSynthesizer: KeystrokeSynthesizing {
     private static let keyV: CGKeyCode = 9
     private static let keyDelete: CGKeyCode = 51
     private static let keyLeftArrow: CGKeyCode = 123
+    private static let keyShift: CGKeyCode = 56
 
     public init() {
         // Tag every event posted from this source so KeyType's own key taps can tell our synthesized
@@ -123,9 +124,31 @@ public final class CGEventKeystrokeSynthesizer: KeystrokeSynthesizing {
 
     public func selectBackward(count: Int) {
         guard count > 0 else { return }
+
+        // The modifier has to be announced as a real `flagsChanged` event, not merely stamped on the
+        // arrow events.
+        //
+        // Setting `flags` on a key event is enough for a Cocoa key *equivalent* like ⌘V, which reads
+        // the event's own flags. Text selection does not work that way: it tracks the actual modifier
+        // state, so without the flagsChanged the arrows arrive as plain caret movement. The caret
+        // walks to the start of the span, nothing is selected, and the replacement gets typed in
+        // front of the text it was supposed to replace — "Okay, this is working well.Ok this is
+        // working well." See ADR-125.
+        postShift(down: true)
+        defer { postShift(down: false) }
+
         for _ in 0..<min(count, maximumReplacementKeystrokes) {
             sendShortcut(Self.keyLeftArrow, flags: .maskShift)
         }
+    }
+
+    private func postShift(down: Bool) {
+        guard let event = CGEvent(keyboardEventSource: source, virtualKey: Self.keyShift, keyDown: down) else {
+            return
+        }
+        event.type = .flagsChanged
+        event.flags = down ? .maskShift : []
+        event.post(tap: .cghidEventTap)
     }
 
     public func type(_ string: String) {

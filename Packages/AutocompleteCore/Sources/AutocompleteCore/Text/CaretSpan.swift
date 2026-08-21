@@ -59,4 +59,11 @@ public protocol CaretSpanReplacing {
     /// focused element refused the write (common in web and Electron fields) or the field moved
     /// underneath us; the caller should fall back to synthesized keystrokes.
     func replaceBehindCaret(_ span: CaretSpan, with replacement: String) -> Bool
+
+    /// What the focused element currently reports as selected, or nil when it exposes nothing.
+    ///
+    /// Used to check that a synthesized selection actually took before anything is typed over it.
+    /// nil means "no information", not "nothing selected" — plenty of apps expose no selection at
+    /// all, and refusing to act on those would disable the fallback everywhere it is most needed.
+    func currentSelection() -> String?
 }

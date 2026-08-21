@@ -30,13 +30,21 @@ final class TextReplacementTests: XCTestCase {
     private final class StubSpanReplacer: CaretSpanReplacing {
         var succeeds: Bool
         var calls: [(CaretSpan, String)] = []
+        /// What the app claims is selected after the synthesized selection. nil models an app that
+        /// exposes nothing, which must not block the fallback.
+        var selection: String?
 
-        init(succeeds: Bool) { self.succeeds = succeeds }
+        init(succeeds: Bool, selection: String? = nil) {
+            self.succeeds = succeeds
+            self.selection = selection
+        }
 
         func replaceBehindCaret(_ span: CaretSpan, with replacement: String) -> Bool {
             calls.append((span, replacement))
             return succeeds
         }
+
+        func currentSelection() -> String? { selection }
     }
 
     private func makeReplacer(
@@ -253,5 +261,94 @@ final class TextReplacementTests: XCTestCase {
         XCTAssertEqual(recorder.events, [
             "selectBackward(7)", "save", "write(believe)", "pasteAndMatchStyle", "restore"
         ])
+    }
+}
+
+// MARK: - Selection verification
+
+/// The failure this guards against produced "Okay, this is working well.Ok this is working well." —
+/// the caret moved but nothing was selected, so the replacement was typed in front of the original.
+final class SelectionVerificationTests: XCTestCase {
+    private static let target = AppTarget(bundleIdentifier: "com.test.app", appName: "Test")
+
+    private final class Recorder: KeystrokeSynthesizing, CompletionPasteboard {
+        var events: [String] = []
+        func paste() { events.append("paste") }
+        func pasteAndMatchStyle() { events.append("pasteAndMatchStyle") }
+        func type(_ string: String) { events.append("type(\(string))") }
+        func deleteBackward() { events.append("deleteBackward") }
+        func selectBackward(count: Int) { events.append("selectBackward(\(count))") }
+        func save() { events.append("save") }
+        func write(_ string: String) { events.append("write(\(string))") }
+        func restore() { events.append("restore") }
+    }
+
+    @MainActor
+    private final class Reporter: CaretSpanReplacing {
+        let selection: String?
+        init(selection: String?) { self.selection = selection }
+        func replaceBehindCaret(_ span: CaretSpan, with replacement: String) -> Bool { false }
+        func currentSelection() -> String? { selection }
+    }
+
+    private func replace(reportedSelection: String?) async throws -> (ReplacementOutcome, [String]) {
+        let recorder = Recorder()
+        let replacer = PasteboardTextReplacer(
+            inserter: PasteboardCompletionInserter(
+                synthesizer: recorder, pasteboard: recorder, restoreDelayNanoseconds: 0
+            ),
+            synthesizer: recorder,
+            spanReplacer: await Reporter(selection: reportedSelection),
+            settleDelayNanoseconds: 0
+        )
+        let plan = ReplacementPlan(
+            span: CaretSpan(original: "Ok this is working well. "),
+            keystrokeFallback: .shiftArrowSelection,
+            write: InsertionPlan(
+                text: "Okay, this is working well. ",
+                strategy: .chunkedStringInjection(size: 24),
+                restorePasteboard: false
+            )
+        )
+        return (try await replacer.replace(plan: plan), recorder.events)
+    }
+
+    func testNothingIsTypedWhenTheSelectionDidNotTake() async throws {
+        let (outcome, events) = try await replace(reportedSelection: "")
+        XCTAssertEqual(outcome, .abandonedSelectionMismatch)
+        XCTAssertFalse(events.contains { $0.hasPrefix("type(") },
+                       "typing over a collapsed caret is what produced the duplicated sentence")
+    }
+
+    func testNothingIsTypedWhenSomethingElseIsSelected() async throws {
+        let (outcome, _) = try await replace(reportedSelection: "a totally different phrase")
+        XCTAssertEqual(outcome, .abandonedSelectionMismatch)
+    }
+
+    func testProceedsWhenTheSelectionMatches() async throws {
+        let (outcome, events) = try await replace(reportedSelection: "Ok this is working well.")
+        XCTAssertEqual(outcome, .applied(.shiftArrowSelection))
+
+        // Injection is chunked, so assert on what was typed in total rather than on a single call.
+        let typed = events
+            .filter { $0.hasPrefix("type(") }
+            .map { String($0.dropFirst("type(".count).dropLast()) }
+            .joined()
+        XCTAssertEqual(typed, "Okay, this is working well. ")
+    }
+
+    /// Most web and Electron apps expose no selection at all. Refusing to act on those would disable
+    /// the fallback exactly where it is the only mechanism available.
+    func testProceedsWhenTheAppExposesNothing() async throws {
+        let (outcome, events) = try await replace(reportedSelection: nil)
+        XCTAssertEqual(outcome, .applied(.shiftArrowSelection))
+        XCTAssertTrue(events.contains { $0.hasPrefix("type(") })
+    }
+
+    func testTrailingBoundaryDoesNotCauseAFalseMismatch() {
+        let span = CaretSpan(original: "Ok this is working well. ")
+        XCTAssertTrue(PasteboardTextReplacer.selection("Ok this is working well.", matches: span))
+        XCTAssertTrue(PasteboardTextReplacer.selection("Ok this is working well. ", matches: span))
+        XCTAssertFalse(PasteboardTextReplacer.selection("", matches: span))
     }
 }

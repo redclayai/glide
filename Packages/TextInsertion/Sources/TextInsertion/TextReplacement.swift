@@ -68,6 +68,10 @@ public enum ReplacementOutcome: Equatable {
     case applied(ReplacementMechanism)
     /// The plan was empty, unchanged, or longer than `maximumReplacementKeystrokes`.
     case skipped
+    /// The span was not selected after the attempt, so nothing was written. Typing here would insert
+    /// the replacement *in front of* the text it was meant to replace, which is worse than doing
+    /// nothing at all.
+    case abandonedSelectionMismatch
 }
 
 public protocol TextReplacing {
@@ -184,8 +188,28 @@ public final class PasteboardTextReplacer: TextReplacing {
             try? await Task.sleep(nanoseconds: settle)
         }
 
+        // Before typing over the selection, check there *is* one. Where the app exposes its
+        // selection this catches a selection that silently failed to take; the failure mode it
+        // prevents is the replacement being typed in front of the original rather than over it.
+        // A nil read means the app tells us nothing, not that nothing is selected, so we proceed.
+        if plan.keystrokeFallback == .shiftArrowSelection, let spanReplacer {
+            let selection = await MainActor.run { spanReplacer.currentSelection() }
+            if let selection, !Self.selection(selection, matches: plan.span) {
+                return .abandonedSelectionMismatch
+            }
+        }
+
         try await inserter.insert(plan: plan.write)
         return .applied(plan.keystrokeFallback)
+    }
+
+    /// Whether what the app reports as selected is the span we meant to replace. Compared on trimmed
+    /// text because a span carries its trailing boundary and apps differ on whether a selection
+    /// includes it; an empty selection never matches, which is the case worth catching.
+    static func selection(_ selection: String, matches span: CaretSpan) -> Bool {
+        let selected = selection.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !selected.isEmpty else { return false }
+        return selected == span.original.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// A sentence-length span means a couple of hundred synthesized key events, and the app has to

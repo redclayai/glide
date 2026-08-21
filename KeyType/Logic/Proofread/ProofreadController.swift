@@ -297,6 +297,8 @@ final class ProofreadController {
             record(suggestion, target: target)
         case .skipped:
             predictionLog?.append("REWRITE accept → SKIPPED(atReplacer)")
+        case .abandonedSelectionMismatch:
+            predictionLog?.append("REWRITE accept → ABANDONED(selectionDidNotTake)")
         }
     }
 
