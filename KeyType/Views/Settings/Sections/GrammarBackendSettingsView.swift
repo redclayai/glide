@@ -27,7 +27,7 @@ struct GrammarBackendSettingsView: View {
     }
 
     var body: some View {
-        Section("Grammar engine") {
+        Section("Rewrite engine") {
             Picker("Answered by", selection: $settings.grammarBackend) {
                 ForEach(RewriteBackend.allCases, id: \.self) { Text($0.title).tag($0) }
             }
@@ -38,12 +38,12 @@ struct GrammarBackendSettingsView: View {
 
             switch settings.grammarBackend {
             case .local:
-                Text("Runs on this Mac. Free, works offline, and nothing you type leaves the machine.")
+                Text("Runs on this Mac. Free, works offline, and nothing you type leaves the machine. Used for grammar fixes and for Polish & Grammar on a selection.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
 
             case .anthropic, .gemini:
-                Text("Better corrections, but each one is a paid request and the sentence is sent to \(settings.grammarBackend.title). Password fields are never sent.")
+                Text("Better corrections, but each one is a paid request and the text is sent to \(settings.grammarBackend.title). Used for grammar fixes and for Polish & Grammar on a selection. Password fields are never sent.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
 

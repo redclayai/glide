@@ -102,7 +102,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             compatibilityStore: compatibilityStore
         )
         self.screenContext = screenContext
-        self.completion = CompletionController(
+        // Held as a local too: closures built before `super.init()` cannot capture `self`, and the
+        // selection rewriter needs the prediction log.
+        let completionController = CompletionController(
             tracker: tracker,
             settings: settings,
             history: history,
@@ -110,6 +112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             telemetry: telemetry,
             compatibilityStore: compatibilityStore
         )
+        self.completion = completionController
         self.historyRecorder = WritingHistoryRecorder(
             tracker: tracker,
             store: history,
@@ -120,11 +123,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // inline grammar pass. The actor serializes them, so they can never run an eval at once.
         let rewriteService = RewriteService()
         let modelFilename = { settings.selectedModelFilename ?? ModelContainer.defaultModelFilename }
+        // The one place that decides which engine answers. Polish and Grammar on a selection used to
+        // always run on the local model, ignoring the engine picker entirely — which is the wrong
+        // default for Polish in particular, since rephrasing is far harder than repairing and is
+        // where a frontier model earns its keep.
+        let selectionRewriter: (String, CloudRewriteStyle) async -> Result<String, Error> = { text, style in
+            switch settings.grammarBackend {
+            case .local:
+                let local: RewriteService.Style = style == .polish ? .polish : .grammar
+                guard let result = await rewriteService.rewrite(
+                    text, style: local, modelFilename: modelFilename()
+                ) else {
+                    return .failure(CloudRewriteError("The on-device model returned nothing."))
+                }
+                return .success(result)
+
+            case .anthropic, .gemini:
+                let backend = settings.grammarBackend
+                let cloud = CloudSentenceRewriter(
+                    backend: backend,
+                    model: { settings.grammarModel },
+                    apiKey: { APIKeyStore().key(for: backend) },
+                    log: { [weak log = completionController] line in log?.predictionLog.append(line) }
+                )
+                do {
+                    return .success(try await cloud.rewriteSelection(text, style: style))
+                } catch {
+                    return .failure(error)
+                }
+            }
+        }
+
         self.selectionRewrite = SelectionRewriteController(
             tracker: tracker,
             service: rewriteService,
             modelFilenameProvider: modelFilename,
-            isEnabledProvider: { settings.selectionActionsEnabled }
+            isEnabledProvider: { settings.selectionActionsEnabled },
+            rewriteText: selectionRewriter
         )
         self.proofread = ProofreadController(
             tracker: tracker,

@@ -22,6 +22,31 @@
 import AutocompleteCore
 import Foundation
 
+/// What the caller is asking for. The distinction is whether the writer's wording may change:
+/// `grammar` repairs, `polish` rephrases. Keeping both in one place means the on-device path and the
+/// hosted path ask for the same thing in the same words.
+public enum CloudRewriteStyle: Sendable {
+    case grammar
+    case polish
+
+    var instruction: String {
+        switch self {
+        case .grammar:
+            return """
+            Fix only the grammar, spelling and punctuation of the text below. Keep the wording, \
+            meaning and tone. Do not rephrase, do not improve the style, do not add or remove \
+            information. Reply with the corrected text and nothing else.
+            """
+        case .polish:
+            return """
+            Rewrite the text below to be clearer and better written, keeping the original meaning \
+            and a natural tone in the author's voice. Do not add information, do not change what is \
+            being claimed, and do not make it longer. Reply with the rewritten text and nothing else.
+            """
+        }
+    }
+}
+
 public struct CloudRewriteError: Error, LocalizedError, Equatable {
     public let message: String
     public init(_ message: String) { self.message = message }
@@ -115,6 +140,23 @@ public final class CloudSentenceRewriter: SentenceRewriting {
         )
     }
 
+    /// Rewrite text the user selected deliberately.
+    ///
+    /// No sentence scan, no debounce and no `ModelRewriteGate`, and all three omissions are correct
+    /// here: the selection *is* the text, the user already asked, and for a polish, rephrasing is
+    /// the entire point — the thing the gate exists to reject on the inline path. Errors surface to
+    /// the caller rather than being swallowed, because the user is watching a spinner.
+    public func rewriteSelection(_ text: String, style: CloudRewriteStyle) async throws -> String {
+        guard let key = apiKey() else { throw CloudRewriteError("No API key saved for \(backend.title).") }
+        if let cooldownUntil, Date() < cooldownUntil {
+            throw CloudRewriteError("Rate limited — try again in \(Int(cooldownUntil.timeIntervalSinceNow))s.")
+        }
+        let raw = try await rewrite(text, key: key, style: style)
+        let candidate = ModelRewriteGate.unwrap(raw)
+        guard !candidate.isEmpty else { throw CloudRewriteError("The model returned nothing.") }
+        return candidate
+    }
+
     /// Exposed so Settings can offer a "Test" button that reports the provider's actual error —
     /// a wrong key or a renamed model is otherwise indistinguishable from "the feature is broken".
     public func check() async throws -> String {
@@ -158,14 +200,8 @@ public final class CloudSentenceRewriter: SentenceRewriting {
         return String(text[range].dropFirst("metric: ".count))
     }
 
-    nonisolated static let instruction = """
-    Fix only the grammar, spelling and punctuation of the sentence below. Keep the wording, meaning \
-    and tone. Do not rephrase, do not improve the style, do not add or remove information. Reply \
-    with the corrected sentence and nothing else.
-    """
-
-    func rewrite(_ sentence: String, key: String) async throws -> String {
-        let request = try buildRequest(sentence: sentence, key: key)
+    func rewrite(_ sentence: String, key: String, style: CloudRewriteStyle = .grammar) async throws -> String {
+        let request = try buildRequest(sentence: sentence, key: key, style: style)
         let (data, response) = try await transport(request)
 
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
@@ -186,10 +222,11 @@ public final class CloudSentenceRewriter: SentenceRewriting {
         return try Self.parse(data, backend: backend)
     }
 
-    func buildRequest(sentence: String, key: String) throws -> URLRequest {
-        // Output is capped tightly: the reply is one corrected sentence, and a cap is the cheapest
-        // protection against paying for a model that decides to explain itself.
-        let maxTokens = min(400, max(64, sentence.count))
+    func buildRequest(sentence: String, key: String, style: CloudRewriteStyle = .grammar) throws -> URLRequest {
+        // Capped, as the cheapest protection against paying for a model that decides to explain
+        // itself — but generously enough for a polish, which may legitimately restructure a
+        // paragraph rather than repair a clause.
+        let maxTokens = min(1200, max(128, sentence.count * 2))
 
         switch backend {
         case .local:
@@ -207,7 +244,7 @@ public final class CloudSentenceRewriter: SentenceRewriting {
             request.httpBody = try JSONSerialization.data(withJSONObject: [
                 "model": model(),
                 "max_tokens": maxTokens,
-                "system": Self.instruction,
+                "system": style.instruction,
                 "messages": [["role": "user", "content": sentence]],
             ])
             return request
@@ -225,7 +262,7 @@ public final class CloudSentenceRewriter: SentenceRewriting {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.setValue(key, forHTTPHeaderField: "x-goog-api-key")
             request.httpBody = try JSONSerialization.data(withJSONObject: [
-                "systemInstruction": ["parts": [["text": Self.instruction]]],
+                "systemInstruction": ["parts": [["text": style.instruction]]],
                 "contents": [["role": "user", "parts": [["text": sentence]]]],
                 "generationConfig": ["maxOutputTokens": maxTokens, "temperature": 0],
             ])

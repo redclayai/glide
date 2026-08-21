@@ -275,3 +275,80 @@ final class CloudRateLimitTests: XCTestCase {
         XCTAssertFalse(message.contains("billing"))
     }
 }
+
+// MARK: - Styles
+
+/// The whole distinction between the two selection actions lives in these instructions, so crossing
+/// them would silently turn "fix my errors" into "rewrite my sentence".
+@MainActor
+final class CloudRewriteStyleTests: XCTestCase {
+    private func rewriter(_ backend: RewriteBackend) -> CloudSentenceRewriter {
+        CloudSentenceRewriter(
+            backend: backend, model: { backend.defaultModel }, apiKey: { "k" },
+            transport: { _ in httpOK("{}") },
+            debounceNanoseconds: 0, unterminatedDebounceNanoseconds: 0
+        )
+    }
+
+    func testGrammarForbidsRephrasing() {
+        let instruction = CloudRewriteStyle.grammar.instruction.lowercased()
+        XCTAssertTrue(instruction.contains("do not rephrase"))
+        XCTAssertTrue(instruction.contains("keep the wording"))
+    }
+
+    func testPolishAsksForRephrasingButNotEmbellishment() {
+        let instruction = CloudRewriteStyle.polish.instruction.lowercased()
+        XCTAssertTrue(instruction.contains("rewrite"))
+        XCTAssertTrue(instruction.contains("do not add information"))
+        XCTAssertFalse(instruction.contains("do not rephrase"), "that is the grammar instruction")
+    }
+
+    func testTheTwoStylesAreNotTheSameInstruction() {
+        XCTAssertNotEqual(CloudRewriteStyle.grammar.instruction, CloudRewriteStyle.polish.instruction)
+    }
+
+    func testStyleReachesTheAnthropicSystemPrompt() throws {
+        let request = try rewriter(.anthropic)
+            .buildRequest(sentence: "Some text.", key: "k", style: .polish)
+        let body = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
+        XCTAssertEqual(body["system"] as? String, CloudRewriteStyle.polish.instruction)
+    }
+
+    func testStyleReachesTheGeminiSystemInstruction() throws {
+        let request = try rewriter(.gemini)
+            .buildRequest(sentence: "Some text.", key: "k", style: .grammar)
+        let body = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
+        let system = body["systemInstruction"] as? [String: Any]
+        let parts = system?["parts"] as? [[String: Any]]
+        XCTAssertEqual(parts?.first?["text"] as? String, CloudRewriteStyle.grammar.instruction)
+    }
+
+    /// The inline pass must keep asking for grammar — it is the one place the gate rejects rephrasing.
+    func testInlinePathStillDefaultsToGrammar() throws {
+        let request = try rewriter(.anthropic).buildRequest(sentence: "Some text.", key: "k")
+        let body = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
+        XCTAssertEqual(body["system"] as? String, CloudRewriteStyle.grammar.instruction)
+    }
+
+    /// A polish may legitimately restructure a paragraph; the cap must not truncate it.
+    func testOutputCapAllowsForARewriteBeingLonger() throws {
+        let text = String(repeating: "word ", count: 40)
+        let request = try rewriter(.anthropic).buildRequest(sentence: text, key: "k", style: .polish)
+        let body = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
+        XCTAssertGreaterThan(body["max_tokens"] as? Int ?? 0, text.count)
+    }
+
+    func testSelectionRewriteFailsLoudlyWithoutAKey() async {
+        let rewriter = CloudSentenceRewriter(
+            backend: .gemini, model: { "m" }, apiKey: { nil },
+            transport: { _ in httpOK("{}") },
+            debounceNanoseconds: 0, unterminatedDebounceNanoseconds: 0
+        )
+        do {
+            _ = try await rewriter.rewriteSelection("text", style: .polish)
+            XCTFail("expected a thrown error — the user is watching a spinner")
+        } catch {
+            XCTAssertTrue("\(error)".contains("No API key"))
+        }
+    }
+}

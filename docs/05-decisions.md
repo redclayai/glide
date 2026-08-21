@@ -3826,3 +3826,26 @@ text. Both are now closed:
   directly over what someone is reading, and a bouncy animation would pull the eye every single
   time — the opposite of what a suggestion offered mid-sentence should do. The popover only animates
   when it was not already visible, so re-presenting for a growing selection does not re-animate.
+
+## ADR-129 — The selection actions use the chosen engine, and styles are one vocabulary
+
+- Date: 2026-08-21
+- Status: accepted
+- Context: Polish and Grammar on a selection always called the local `RewriteService`, ignoring the
+  engine picker entirely — which was the wrong default for Polish in particular. Rephrasing is much
+  harder than repairing, so it is exactly where a frontier model earns its keep, and a 2B base model
+  was the weakest thing in the app.
+- Decision: `CloudRewriteStyle` (`grammar` / `polish`) holds one instruction per style, shared by the
+  on-device and hosted paths so both ask for the same thing in the same words. `CloudSentenceRewriter`
+  gains `rewriteSelection(_:style:)` — no sentence scan, no debounce, no `ModelRewriteGate`, all three
+  correctly omitted because the selection *is* the text, the user already asked, and for a polish
+  rephrasing is the entire point. `SelectionRewriteController` takes an injected
+  `(String, CloudRewriteStyle) async -> Result<String, Error>` so it stays unaware that backends
+  exist; the branch lives in one place in `AppDelegate`.
+- Consequences: The distinction between the two actions now lives entirely in two instruction
+  strings, so there are tests asserting they differ and that each reaches the right provider field —
+  crossing them would silently turn "fix my errors" into "rewrite my sentence". The output cap rises
+  for a polish, which may restructure a paragraph rather than repair a clause. Errors now surface to
+  the caller instead of being swallowed, because a selection rewrite happens while the user watches a
+  spinner. Note `CloudSentenceRewriter` is now misnamed — it handles selections too; a rename was
+  deferred rather than churn 93 tests mid-change.
