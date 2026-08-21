@@ -8,6 +8,15 @@
         <description>Updates for Glide</description>
         <language>en</language>
         <item>
+            <title>0.21</title>
+            <pubDate>Fri, 21 Aug 2026 16:37:10 -0400</pubDate>
+            <link>https://github.com/redclayai/glide</link>
+            <sparkle:version>21</sparkle:version>
+            <sparkle:shortVersionString>0.21</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/redclayai/glide/releases/download/v0.21/Glide-0.21.dmg" length="13160582" type="application/octet-stream" sparkle:edSignature="vmrsBIF/+/GdeuTzZNKfDQ9D+jqGlqzFEweK5YP7wmH6j2shlc9LSIqYmOjdTfhi6tE4VxCFKZYTEKkvTcAFBg=="/>
+        </item>
+        <item>
             <title>0.20</title>
             <pubDate>Fri, 21 Aug 2026 16:28:05 -0400</pubDate>
             <link>https://github.com/redclayai/glide</link>
@@ -24,15 +33,6 @@
             <sparkle:shortVersionString>0.19</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <enclosure url="https://github.com/redclayai/glide/releases/download/v0.19/Glide-0.19.dmg" length="13153048" type="application/octet-stream" sparkle:edSignature="8fgoJSDhegx5s7RS/4okMxonlBz200y/EDiJacMEURLAwrNmaz6B3M8SO/JfEA2Fje5cO/aVI6rQCriDIQTcBg=="/>
-        </item>
-        <item>
-            <title>0.18</title>
-            <pubDate>Fri, 21 Aug 2026 13:00:28 -0400</pubDate>
-            <link>https://github.com/redclayai/glide</link>
-            <sparkle:version>18</sparkle:version>
-            <sparkle:shortVersionString>0.18</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/redclayai/glide/releases/download/v0.18/Glide-0.18.dmg" length="13153201" type="application/octet-stream" sparkle:edSignature="Y6cGnGmUzIrkXW8zWfSsgoZO7oN9+l83AilbjYEocyFcnnb0Iv6qwBYyN6wxVJncA8ETn7S1umxls91LFoNXDg=="/>
         </item>
     </channel>
 </rss>
