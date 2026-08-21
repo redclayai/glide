@@ -10,14 +10,22 @@
 //    1. `.accessibilitySelectedText` — set the selected range, then write the replacement through
 //       AX. No keystrokes, no pasteboard, and it is the only mechanism whose result we can verify
 //       by re-reading the element. Works in native AppKit fields; usually refused by web/Electron.
-//    2. `.shiftArrowSelection` — ⇧← over the span, then paste on top of the selection. The general
+//    2. `.shiftArrowSelection` — ⇧← over the span, then type over the selection. The general
 //       fallback, and a single undo step in most apps.
-//    3. `.backspaceDeletion` — ⌫ over the span, then paste at the caret. For apps where shift
+//    3. `.backspaceDeletion` — ⌫ over the span, then type at the caret. For apps where shift
 //       selection misbehaves; costs N undo entries and flickers.
 //
 //  The ladder tries AX first and then *exactly one* keystroke mechanism. Chaining both keystroke
 //  paths is unsafe: a shift-selection that only partially took, followed by a delete run, eats
 //  text the user typed. See ADR-104.
+//
+//  The keystroke fallback **types** the replacement rather than pasting it, which is the opposite of
+//  what completion insertion does, and deliberately so. Replacing a sentence means synthesizing up
+//  to a couple of hundred selection keystrokes first; the target app is still draining those when a
+//  paste arrives, so it reads the pasteboard long after the clipboard has been restored and inserts
+//  whatever the user had copied earlier. That is not a tuning problem — a fixed restore delay cannot
+//  be right for every app and every machine load. Typing the text has no such race and never touches
+//  the user's clipboard. See ADR-123.
 //
 
 import AppCompatibility
@@ -81,9 +89,25 @@ public struct ReplacementPlanner {
         self.compatibilityStore = compatibilityStore
     }
 
+    /// Chunk size used when the app has no opinion. Small enough that a field keeping up with
+    /// synthesized input is not asked to swallow a whole sentence in one event.
+    static let defaultInjectionChunk = 24
+
     public func plan(span: CaretSpan, replacement: String, context: TextFieldContext) -> ReplacementPlan {
-        let write = insertionPlanner.plan(candidate: CompletionCandidate(text: replacement), context: context)
+        var write = insertionPlanner.plan(candidate: CompletionCandidate(text: replacement), context: context)
         let policy = compatibilityStore.policy(for: context)
+
+        // Type it, do not paste it. See the file header: after a long selection run, a paste races
+        // the clipboard restore and loses. `pasteAndMatchStyle` is the one exception — an app that
+        // demands it does so because plain insertion carries the wrong styling, and styling is
+        // visible where a clipboard race is merely baffling.
+        if write.strategy != .pasteAndMatchStyle {
+            write.strategy = .chunkedStringInjection(
+                size: policy.stringInjectionChunkSize ?? Self.defaultInjectionChunk
+            )
+            // Nothing was written to the pasteboard, so there is nothing to put back.
+            write.restorePasteboard = false
+        }
 
         // Apps that need text injected in chunks rather than pasted also tend to mishandle a
         // synthesized shift-selection, so delete the span outright there.
@@ -107,8 +131,9 @@ public final class PasteboardTextReplacer: TextReplacing {
     /// - Parameters:
     ///   - spanReplacer: the accessibility seam. Pass nil to force the keystroke fallback (tests,
     ///     or a build without AX permission).
-    ///   - settleDelayNanoseconds: pause between removing the span and writing over it, so the
-    ///     target app's selection state has landed before the paste.
+    ///   - settleDelayNanoseconds: base pause between removing the span and writing over it. The
+    ///     actual wait scales with how many keystrokes were synthesized, because the app has to
+    ///     drain them before the write can land in the right place.
     public init(
         planner: ReplacementPlanner = ReplacementPlanner(),
         inserter: CompletionInserting = PasteboardCompletionInserter(),
@@ -151,11 +176,23 @@ public final class PasteboardTextReplacer: TextReplacing {
             return .skipped
         }
 
-        if settleDelayNanoseconds > 0 {
-            try? await Task.sleep(nanoseconds: settleDelayNanoseconds)
+        let settle = Self.settleDelay(
+            base: settleDelayNanoseconds,
+            keystrokes: plan.span.keystrokeLength
+        )
+        if settle > 0 {
+            try? await Task.sleep(nanoseconds: settle)
         }
 
         try await inserter.insert(plan: plan.write)
         return .applied(plan.keystrokeFallback)
+    }
+
+    /// A sentence-length span means a couple of hundred synthesized key events, and the app has to
+    /// finish them before the replacement is written or it lands in the wrong place. A flat delay was
+    /// tuned for a one-word completion and is nowhere near enough here.
+    static func settleDelay(base: UInt64, keystrokes: Int) -> UInt64 {
+        let perKeystroke: UInt64 = 900_000        // 0.9ms each
+        return base + perKeystroke * UInt64(max(0, keystrokes))
     }
 }

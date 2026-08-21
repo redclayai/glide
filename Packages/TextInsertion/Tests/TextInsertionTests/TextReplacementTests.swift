@@ -89,6 +89,49 @@ final class TextReplacementTests: XCTestCase {
         XCTAssertEqual(plan.write.text, "believe")
     }
 
+    /// Replacement types its text rather than pasting it. A paste after a long selection run loses a
+    /// race with the clipboard restore and inserts whatever the user had copied earlier.
+    func testPlannerWritesByInjectionNotThePasteboard() {
+        let plan = ReplacementPlanner().plan(
+            span: CaretSpan(original: "beleive"),
+            replacement: "believe",
+            context: context()
+        )
+        guard case .chunkedStringInjection = plan.write.strategy else {
+            return XCTFail("expected injection, got \(plan.write.strategy)")
+        }
+        XCTAssertFalse(plan.write.restorePasteboard, "nothing was written to the pasteboard")
+    }
+
+    /// The one app-driven exception: match-style pasting exists because plain insertion carries the
+    /// wrong styling, and wrong styling is visible where a clipboard race is merely baffling.
+    func testMatchStylePastingIsPreserved() {
+        let store = AppCompatibilityStore(overrides: [
+            TargetOverride(bundleIdentifier: Self.target.bundleIdentifier, requiresPasteAndMatchStyle: true)
+        ])
+        let plan = ReplacementPlanner(
+            insertionPlanner: InsertionPlanner(compatibilityStore: store),
+            compatibilityStore: store
+        ).plan(span: CaretSpan(original: "beleive"), replacement: "believe", context: context())
+
+        XCTAssertEqual(plan.write.strategy, .pasteAndMatchStyle)
+    }
+
+    // MARK: - Settle timing
+
+    /// A sentence-length span is hundreds of synthesized events; the app must drain them before the
+    /// replacement is written or it lands in the wrong place.
+    func testSettleDelayScalesWithTheSelectionLength() {
+        let short = PasteboardTextReplacer.settleDelay(base: 12_000_000, keystrokes: 7)
+        let long = PasteboardTextReplacer.settleDelay(base: 12_000_000, keystrokes: 200)
+        XCTAssertGreaterThan(long, short)
+        XCTAssertGreaterThan(long, 100_000_000, "200 keystrokes need well over 100ms to drain")
+    }
+
+    func testSettleDelayHandlesAnEmptySpan() {
+        XCTAssertEqual(PasteboardTextReplacer.settleDelay(base: 0, keystrokes: 0), 0)
+    }
+
     /// Apps that need chunked injection also mishandle a synthesized shift-selection, so the span
     /// is deleted outright instead.
     func testPlannerPrefersDeletionWhereInjectionIsChunked() {
@@ -152,15 +195,17 @@ final class TextReplacementTests: XCTestCase {
         let plan = ReplacementPlan(
             span: CaretSpan(original: "beleive"),
             keystrokeFallback: .shiftArrowSelection,
-            write: InsertionPlan(text: "believe")
+            write: InsertionPlan(text: "believe", strategy: .chunkedStringInjection(size: 24), restorePasteboard: false)
         )
 
         let outcome = try await makeReplacer(recorder, spanReplacer: spanReplacer).replace(plan: plan)
 
         XCTAssertEqual(outcome, .applied(.shiftArrowSelection))
-        XCTAssertEqual(recorder.events, [
-            "selectBackward(7)", "save", "write(believe)", "paste", "restore"
-        ])
+        XCTAssertEqual(recorder.events, ["selectBackward(7)", "type(believe)"])
+        XCTAssertFalse(
+            recorder.events.contains { $0 == "save" || $0 == "restore" },
+            "the clipboard must not be involved — that race is the bug this replaced"
+        )
     }
 
     func testDeletionFallbackRemovesSpanOneKeystrokePerGrapheme() async throws {
@@ -168,15 +213,14 @@ final class TextReplacementTests: XCTestCase {
         let plan = ReplacementPlan(
             span: CaretSpan(original: "cat"),
             keystrokeFallback: .backspaceDeletion,
-            write: InsertionPlan(text: "dog")
+            write: InsertionPlan(text: "dog", strategy: .chunkedStringInjection(size: 24), restorePasteboard: false)
         )
 
         let outcome = try await makeReplacer(recorder).replace(plan: plan)
 
         XCTAssertEqual(outcome, .applied(.backspaceDeletion))
         XCTAssertEqual(recorder.events, [
-            "deleteBackward", "deleteBackward", "deleteBackward",
-            "save", "write(dog)", "paste", "restore"
+            "deleteBackward", "deleteBackward", "deleteBackward", "type(dog)"
         ])
     }
 

@@ -3703,3 +3703,24 @@ text. Both are now closed:
   will never work at this volume". Also corrects a claim I made from a single observation: the free
   tier is 20 requests **per minute**, not ~20 in total — the retry hints are seconds, not hours. Worth
   remembering that a rate limit read off one error message is a guess until the delay is read too.
+
+## ADR-123 — The keystroke replacement path types its text instead of pasting it
+
+- Date: 2026-08-21
+- Status: accepted
+- Context: Accepting a sentence-level rewrite inserted the user's *previous clipboard contents*
+  instead of the suggestion. The prediction log showed `APPLIED(shiftArrowSelection)`, so the AX
+  write had been refused and the keystroke fallback ran: up to ~220 synthesized ⇧← events, a 12 ms
+  settle, then save-clipboard → write-suggestion → ⌘V → restore-clipboard after 120 ms. The target
+  app is still draining hundreds of key events when the paste arrives, so it reads the pasteboard
+  well after the restore has already put the old clipboard back.
+- Decision: The keystroke fallback writes by chunked string injection — typing the replacement as
+  synthesized Unicode input — and never touches the pasteboard. The settle before writing also now
+  scales with the number of keystrokes synthesized rather than being a flat 12 ms.
+  `pasteAndMatchStyle` remains the one exception: an app asks for it because plain insertion carries
+  the wrong styling, and wrong styling is visible where a clipboard race is merely baffling.
+- Consequences: The race is gone by construction rather than by tuning, and the user's clipboard is
+  never borrowed for a rewrite. Note the inversion from completion insertion, which pastes: that path
+  writes one short word with no preceding keystrokes, where a paste is both safe and better at
+  preserving styling. Same mechanism, opposite correct answer, because the surrounding conditions
+  differ — worth remembering before "unifying" the two.
