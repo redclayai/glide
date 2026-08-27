@@ -97,6 +97,11 @@ public struct ReplacementPlanner {
     /// synthesized input is not asked to swallow a whole sentence in one event.
     static let defaultInjectionChunk = 24
 
+    /// Web-rendered fields get smaller pieces. A Chromium contenteditable given a sentence in two
+    /// large chunks can end up drawing the replacement over the original rather than in place of it;
+    /// more, smaller edits arrive more like real typing and each one invalidates properly.
+    static let webInjectionChunk = 8
+
     public func plan(span: CaretSpan, replacement: String, context: TextFieldContext) -> ReplacementPlan {
         var write = insertionPlanner.plan(candidate: CompletionCandidate(text: replacement), context: context)
         let policy = compatibilityStore.policy(for: context)
@@ -106,9 +111,9 @@ public struct ReplacementPlanner {
         // demands it does so because plain insertion carries the wrong styling, and styling is
         // visible where a clipboard race is merely baffling.
         if write.strategy != .pasteAndMatchStyle {
-            write.strategy = .chunkedStringInjection(
-                size: policy.stringInjectionChunkSize ?? Self.defaultInjectionChunk
-            )
+            let chunk = policy.stringInjectionChunkSize
+                ?? (context.traits.isWebField ? Self.webInjectionChunk : Self.defaultInjectionChunk)
+            write.strategy = .chunkedStringInjection(size: chunk)
             // Nothing was written to the pasteboard, so there is nothing to put back.
             write.restorePasteboard = false
         }

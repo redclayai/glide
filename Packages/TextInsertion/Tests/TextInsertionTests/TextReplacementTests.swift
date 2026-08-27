@@ -10,6 +10,33 @@ final class TextReplacementTests: XCTestCase {
         TextFieldContext(beforeCursor: "i beleive this", target: target)
     }
 
+    /// A web-rendered field gets its replacement in smaller pieces than a native one. Handing a
+    /// Chromium contenteditable a sentence in a couple of large chunks is what produced the
+    /// replacement drawn on top of the original rather than in place of it. See ADR-131.
+    func testWebFieldsGetSmallerInjectionChunks() {
+        let webContext = TextFieldContext(
+            beforeCursor: "i beleive this",
+            target: Self.target,
+            traits: TextFieldTraits(isWebField: true)
+        )
+        let planner = ReplacementPlanner()
+
+        let web = planner.plan(
+            span: CaretSpan(original: "i beleive this"),
+            replacement: "I believe this",
+            context: webContext
+        )
+        let native = planner.plan(
+            span: CaretSpan(original: "i beleive this"),
+            replacement: "I believe this",
+            context: context()
+        )
+
+        XCTAssertEqual(web.write.strategy, .chunkedStringInjection(size: ReplacementPlanner.webInjectionChunk))
+        XCTAssertEqual(native.write.strategy, .chunkedStringInjection(size: ReplacementPlanner.defaultInjectionChunk))
+        XCTAssertLessThan(ReplacementPlanner.webInjectionChunk, ReplacementPlanner.defaultInjectionChunk)
+    }
+
     // MARK: - Recording seams
 
     /// Ordered log of every synthesiser + pasteboard call, so tests can assert that the span was

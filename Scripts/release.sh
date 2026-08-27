@@ -225,7 +225,11 @@ if [ "$PUBLISH" -eq 1 ]; then
   git -C "$ROOT_DIR" tag -a "$TAG" -m "$APP_NAME $VERSION"
   git -C "$ROOT_DIR" push origin "$TAG"
 
-  NOTES="Glide $VERSION"
+  # Notes live in the repo, so they are written and reviewed with the change rather than typed into
+  # the GitHub UI afterwards and forgotten. A release without them is a release nobody can read.
+  NOTES_FILE="$ROOT_DIR/docs/release-notes/$VERSION.md"
+  [ -f "$NOTES_FILE" ] || fail "No release notes at docs/release-notes/$VERSION.md — write them first."
+  NOTES="$(cat "$NOTES_FILE")"
   [ "$SKIP_NOTARIZE" -eq 1 ] && NOTES="$NOTES
 
 ⚠️ This build is signed but **not notarized** — macOS will refuse to open it on first launch.

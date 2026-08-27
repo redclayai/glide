@@ -219,17 +219,22 @@ public final class PasteboardCompletionInserter: CompletionInserting {
     private let synthesizer: KeystrokeSynthesizing
     private let pasteboard: CompletionPasteboard
     private let restoreDelayNanoseconds: UInt64
+    /// Pause between injected chunks. Posting every chunk in the same run-loop turn is what a
+    /// Chromium-rendered editor cannot keep up with — see the note on the injection case below.
+    private let injectionChunkDelayNanoseconds: UInt64
 
     public init(
         planner: InsertionPlanner = InsertionPlanner(),
         synthesizer: KeystrokeSynthesizing = CGEventKeystrokeSynthesizer(),
         pasteboard: CompletionPasteboard = SystemPasteboard(),
-        restoreDelayNanoseconds: UInt64 = 120_000_000
+        restoreDelayNanoseconds: UInt64 = 120_000_000,
+        injectionChunkDelayNanoseconds: UInt64 = 7_000_000
     ) {
         self.planner = planner
         self.synthesizer = synthesizer
         self.pasteboard = pasteboard
         self.restoreDelayNanoseconds = restoreDelayNanoseconds
+        self.injectionChunkDelayNanoseconds = injectionChunkDelayNanoseconds
     }
 
     public func planInsertion(candidate: CompletionCandidate, context: TextFieldContext) -> InsertionPlan {
@@ -252,8 +257,17 @@ public final class PasteboardCompletionInserter: CompletionInserting {
             }
             finishInjection(plan: plan)
         case let .chunkedStringInjection(size):
-            for chunk in Self.chunks(of: plan.text, size: size) {
+            // Paced, not blasted. Replacing a selection in a Chromium-rendered contenteditable by
+            // posting every chunk in one run-loop turn leaves the editor showing the old glyphs and
+            // the new ones painted over each other — the text underneath is correct, the compositor
+            // simply never invalidated the line. Letting the run loop turn between chunks gives the
+            // editor a chance to lay out each edit as its own event, the way real typing arrives.
+            let pieces = Self.chunks(of: plan.text, size: size)
+            for (index, chunk) in pieces.enumerated() {
                 synthesizer.type(chunk)
+                if injectionChunkDelayNanoseconds > 0, index < pieces.count - 1 {
+                    try? await Task.sleep(nanoseconds: injectionChunkDelayNanoseconds)
+                }
             }
             finishInjection(plan: plan)
         }

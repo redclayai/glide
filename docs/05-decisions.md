@@ -3871,3 +3871,24 @@ text. Both are now closed:
   to recover. The design's `popIn .22s cubic-bezier(.32,.72,0,1)` replaces the hand-picked spring on
   both surfaces, so they now share a curve as well as a direction. Removed `FirstMouseButton` and the
   two `configure` helpers, which the swap orphaned.
+
+## ADR-131 — Replacements are paced, and web-rendered fields get smaller chunks
+
+- Date: 2026-08-27
+- Status: accepted
+- Context: A rewrite accepted in a Chromium-rendered editor (Millie, `org.chromium.Chromium`)
+  occasionally left the old sentence and the new one painted on top of each other. The telemetry says
+  the replacement itself succeeded — `APPLIED(shiftArrowSelection)`, one accept, no mismatch — so the
+  document text was right and only the drawing was wrong: the editor never invalidated the line.
+  `.chunkedStringInjection` posted every chunk in a single run-loop turn, which is nothing like how
+  the same text arrives when a person types it.
+- Decision: Pause ~7 ms between injected chunks, and give web-rendered fields (`traits.isWebField`)
+  a chunk of 8 characters where a native field keeps 24. An explicit per-app policy in
+  `AppCompatibility` was the alternative; the trait was chosen instead because the fault is the
+  renderer, not the application, and every Electron/Chromium/WebView host inherits the fix without
+  anyone having to list its bundle identifier first.
+- Consequences: A sentence-length replacement in a web field now takes roughly a fifth of a second
+  to write rather than arriving at once. That is slower than before and still faster than typing it.
+  This is a mitigation reasoned from the mechanism, not a verified repair — the artifact is
+  intermittent and did not reproduce on demand, so if it recurs the next step is a per-app override
+  or a post-insert caret nudge to force the repaint, which is the more invasive of the two.
