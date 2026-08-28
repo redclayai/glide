@@ -67,7 +67,15 @@ public final class AXCaretSpanReplacer: CaretSpanReplacing {
             return false
         }
 
-        return verify(replacement: replacement, spanStart: spanStart, on: element)
+        guard verify(replacement: replacement, spanStart: spanStart, on: element) else {
+            // The write claimed success and did nothing — Chromium's habit. Collapse the caret back
+            // before returning, for the same reason as the branch above: the caller's next move is
+            // the keystroke fallback, and a span left selected turns its shift-arrow run into a
+            // partial, wrong selection. See ADR-133.
+            _ = setRange(NSRange(location: caretRange.location, length: 0), attribute: selectedRangeAttribute, on: element)
+            return false
+        }
+        return true
     }
 
     public func currentSelection() -> String? {

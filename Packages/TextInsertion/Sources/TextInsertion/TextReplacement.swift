@@ -48,11 +48,20 @@ public struct ReplacementPlan: Equatable {
     /// workaround, chunked injection) so replacement inherits every per-app quirk already tuned
     /// for insertion.
     public var write: InsertionPlan
+    /// Whether to try the accessibility write at all. False for web-rendered fields, where the
+    /// attempt cannot succeed and actively breaks the fallback behind it — see `replace(plan:)`.
+    public var allowsAccessibilityWrite: Bool
 
-    public init(span: CaretSpan, keystrokeFallback: ReplacementMechanism = .shiftArrowSelection, write: InsertionPlan) {
+    public init(
+        span: CaretSpan,
+        keystrokeFallback: ReplacementMechanism = .shiftArrowSelection,
+        write: InsertionPlan,
+        allowsAccessibilityWrite: Bool = true
+    ) {
         self.span = span
         self.keystrokeFallback = keystrokeFallback
         self.write = write
+        self.allowsAccessibilityWrite = allowsAccessibilityWrite
     }
 
     /// A replacement is worth performing only when it changes something and fits the bound.
@@ -124,7 +133,17 @@ public struct ReplacementPlanner {
             ? .shiftArrowSelection
             : .backspaceDeletion
 
-        return ReplacementPlan(span: span, keystrokeFallback: fallback, write: write)
+        // Chromium-rendered fields answer `.success` to the accessibility write and then drop it, so
+        // the attempt is not merely useless there — it leaves the span selected, and the shift-arrow
+        // run behind it then produces a partial, wrong selection. Measured in Claude Desktop: with
+        // the attempt, the replacement lands in front of the original every time; without it, the
+        // keystroke path is correct every time. See ADR-133.
+        return ReplacementPlan(
+            span: span,
+            keystrokeFallback: fallback,
+            write: write,
+            allowsAccessibilityWrite: !context.traits.isWebField
+        )
     }
 }
 
@@ -164,7 +183,7 @@ public final class PasteboardTextReplacer: TextReplacing {
     public func replace(plan: ReplacementPlan) async throws -> ReplacementOutcome {
         guard plan.isActionable else { return .skipped }
 
-        if let spanReplacer {
+        if plan.allowsAccessibilityWrite, let spanReplacer {
             let applied = await MainActor.run {
                 spanReplacer.replaceBehindCaret(plan.span, with: plan.write.text)
             }
@@ -196,10 +215,15 @@ public final class PasteboardTextReplacer: TextReplacing {
         // Before typing over the selection, check there *is* one. Where the app exposes its
         // selection this catches a selection that silently failed to take; the failure mode it
         // prevents is the replacement being typed in front of the original rather than over it.
-        // A nil read means the app tells us nothing, not that nothing is selected, so we proceed.
+        //
+        // Waited for rather than sampled once. A Chromium-rendered field applies a synthesized arrow
+        // run asynchronously: measured against Claude Desktop, a 26-character span reads back as ""
+        // at 0 ms, "g" at 25 ms, "s working" at 50 ms, and only becomes whole at 75 ms. A single read
+        // after a fixed delay catches one of those intermediate states and abandons a replacement
+        // that was about to succeed. Polling for the state we actually need is both more reliable
+        // than a longer sleep and faster than one, since it returns the moment the app agrees.
         if plan.keystrokeFallback == .shiftArrowSelection, let spanReplacer {
-            let selection = await MainActor.run { spanReplacer.currentSelection() }
-            if let selection, !Self.selection(selection, matches: plan.span) {
+            if await settledSelection(matching: plan.span, using: spanReplacer) == .diverged {
                 return .abandonedSelectionMismatch
             }
         }
@@ -207,6 +231,38 @@ public final class PasteboardTextReplacer: TextReplacing {
         try await inserter.insert(plan: plan.write)
         return .applied(plan.keystrokeFallback)
     }
+
+    enum SelectionSettlement {
+        /// The app reports the span selected — safe to type over it.
+        case matched
+        /// The app reports something else and stopped changing — the selection did not take.
+        case diverged
+        /// The app exposes no selection at all. Not evidence of failure, so the caller proceeds.
+        case unknown
+    }
+
+    /// Poll the app's reported selection until it matches `span`, it stops being worth waiting for,
+    /// or the app turns out to expose nothing.
+    private func settledSelection(
+        matching span: CaretSpan,
+        using replacer: any CaretSpanReplacing
+    ) async -> SelectionSettlement {
+        var waited: UInt64 = 0
+        while true {
+            let selection = await MainActor.run { replacer.currentSelection() }
+            guard let selection else { return .unknown }
+            if Self.selection(selection, matches: span) { return .matched }
+            guard waited < Self.selectionSettleDeadlineNanoseconds else { return .diverged }
+            try? await Task.sleep(nanoseconds: Self.selectionPollIntervalNanoseconds)
+            waited += Self.selectionPollIntervalNanoseconds
+        }
+    }
+
+    /// Long enough for a slow web view under load to finish a couple of hundred arrow keys; short
+    /// enough that a genuinely failed selection does not leave the user waiting. Only a failure ever
+    /// spends the whole budget — a success returns as soon as the app agrees.
+    static let selectionSettleDeadlineNanoseconds: UInt64 = 500_000_000
+    static let selectionPollIntervalNanoseconds: UInt64 = 20_000_000
 
     /// Whether what the app reports as selected is the span we meant to replace. Compared on trimmed
     /// text because a span carries its trailing boundary and apps differ on whether a selection

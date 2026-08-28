@@ -3916,3 +3916,37 @@ text. Both are now closed:
   from a plausible mechanism and shipped without a reproduction, and the one piece of evidence that
   would have refuted it — an accept count that never moved — was available before the change was
   written.
+
+## ADR-133 — No accessibility write in web-rendered fields, and always collapse the caret on failure
+
+- Date: 2026-08-28
+- Status: accepted
+- Context: Accepting a rewrite in Claude Desktop produced the replacement *in front of* the original —
+  the ADR-125 symptom, but from a different cause. A probe replicating the replace sequence against
+  the live app settled it. Chromium returns `.success` for the `AXSelectedText` write and drops it;
+  `verify()` catches that and returns false, which is correct, but the early return skipped the
+  caret restore that the write-failure branch performs. So the fallback began with the span already
+  selected, and `selectBackward` extended that selection rather than creating one — the probe read
+  `"Ok I thin"` selected out of a 26-character span, and the replacement was typed at the front.
+  Measured: with the accessibility attempt, wrong 2/2; without it, correct 6/6 across both keystroke
+  mechanisms.
+- Decision: Two changes. `ReplacementPlan` carries `allowsAccessibilityWrite`, set false when
+  `context.traits.isWebField`, and `replace(plan:)` honours it — the attempt cannot succeed in a
+  web-rendered field, so the only thing it can do there is damage the fallback. Separately,
+  `replaceBehindCaret` now collapses the caret before returning false from a failed `verify()`, the
+  same as the failed-write branch, so no path can hand the fallback a stranded selection.
+- Consequences: Web fields go straight to keystrokes, which is what they were doing anyway after the
+  AX attempt failed — one wasted round trip removed along with the bug. Native fields are unchanged
+  and keep the verifiable path. The `abandonedSelectionMismatch` guard did not save us here, which is
+  worth remembering: it reads the focused element afresh and returns nil when it cannot resolve one,
+  and nil means "proceed". It is a backstop, not a guarantee.
+- Follow-on, same investigation: with the accessibility attempt removed, the replacement started
+  landing correctly but the `abandonedSelectionMismatch` guard began rejecting it. The guard sampled
+  the selection once after `settleDelay` (35 ms for a 26-character span) and Chromium had not
+  finished applying the arrows — measured convergence was 75 ms, via "" → "g" → "s working" → whole.
+  The guard now polls `currentSelection()` until it matches the span, returning the moment the app
+  agrees and abandoning after a 500 ms deadline. Waiting for the state we can verify is both more
+  reliable than a longer fixed sleep and faster than one; only a real failure spends the budget.
+- Note on method: this is the third attempt at this artifact and the first one diagnosed by probing
+  the live app instead of reading the code and reasoning. ADR-131 and ADR-132 were each plausible and
+  ADR-132 was even a real bug, but neither was this one. The probe took less time than either.

@@ -37,6 +37,119 @@ final class TextReplacementTests: XCTestCase {
         XCTAssertLessThan(ReplacementPlanner.webInjectionChunk, ReplacementPlanner.defaultInjectionChunk)
     }
 
+    /// Web-rendered fields must not attempt the accessibility write. Chromium answers `.success`
+    /// and drops it, leaving the span selected, and the shift-arrow run behind it then selects the
+    /// wrong thing — the replacement lands in front of the original. See ADR-133.
+    func testWebFieldsSkipTheAccessibilityWrite() {
+        let webContext = TextFieldContext(
+            beforeCursor: "i beleive this",
+            target: Self.target,
+            traits: TextFieldTraits(isWebField: true)
+        )
+        let planner = ReplacementPlanner()
+
+        let web = planner.plan(
+            span: CaretSpan(original: "i beleive this"),
+            replacement: "I believe this",
+            context: webContext
+        )
+        let native = planner.plan(
+            span: CaretSpan(original: "i beleive this"),
+            replacement: "I believe this",
+            context: context()
+        )
+
+        XCTAssertFalse(web.allowsAccessibilityWrite)
+        XCTAssertTrue(native.allowsAccessibilityWrite)
+    }
+
+    /// And the replacer must honour that: no accessibility call at all, straight to keystrokes.
+    @MainActor
+    func testAccessibilityReplacerIsNotConsultedWhenTheePlanForbidsIt() async throws {
+        let recorder = Recorder()
+        let stub = StubSpanReplacer(succeeds: true)
+        let replacer = PasteboardTextReplacer(
+            inserter: PasteboardCompletionInserter(
+                synthesizer: recorder,
+                pasteboard: recorder,
+                injectionChunkDelayNanoseconds: 0
+            ),
+            synthesizer: recorder,
+            spanReplacer: stub,
+            settleDelayNanoseconds: 0
+        )
+        var plan = replacer.planReplacement(
+            span: CaretSpan(original: "i beleive this"),
+            replacement: "I believe this",
+            context: context()
+        )
+        plan.allowsAccessibilityWrite = false
+
+        let outcome = try await replacer.replace(plan: plan)
+
+        XCTAssertTrue(stub.calls.isEmpty, "the accessibility write must not be attempted")
+        XCTAssertEqual(outcome, .applied(.shiftArrowSelection))
+        XCTAssertTrue(recorder.events.contains("selectBackward(14)"))
+    }
+
+    /// A web view reports the arrow run as it applies it, not all at once. The replacer has to wait
+    /// for the selection it asked for instead of judging the first thing it sees. See ADR-133.
+    @MainActor
+    func testSelectionThatArrivesLateIsWaitedForRatherThanAbandoned() async throws {
+        let recorder = Recorder()
+        let stub = StubSpanReplacer(succeeds: false)
+        // What Claude Desktop actually reports at 0 / 25 / 50 / 75 ms for this span.
+        stub.selectionSequence = ["", "i", "eve this", "i beleive this"]
+        let replacer = PasteboardTextReplacer(
+            inserter: PasteboardCompletionInserter(
+                synthesizer: recorder,
+                pasteboard: recorder,
+                injectionChunkDelayNanoseconds: 0
+            ),
+            synthesizer: recorder,
+            spanReplacer: stub,
+            settleDelayNanoseconds: 0
+        )
+        let plan = replacer.planReplacement(
+            span: CaretSpan(original: "i beleive this"),
+            replacement: "I believe this",
+            context: context()
+        )
+
+        let outcome = try await replacer.replace(plan: plan)
+
+        XCTAssertEqual(outcome, .applied(.shiftArrowSelection))
+        XCTAssertTrue(recorder.events.contains { $0.hasPrefix("type(") })
+    }
+
+    /// But a selection that never becomes the span is still abandoned — the wait is bounded, and a
+    /// replacement typed over the wrong span is worse than one that does not happen.
+    @MainActor
+    func testSelectionThatNeverMatchesIsStillAbandoned() async throws {
+        let recorder = Recorder()
+        let stub = StubSpanReplacer(succeeds: false, selection: "something else entirely")
+        let replacer = PasteboardTextReplacer(
+            inserter: PasteboardCompletionInserter(
+                synthesizer: recorder,
+                pasteboard: recorder,
+                injectionChunkDelayNanoseconds: 0
+            ),
+            synthesizer: recorder,
+            spanReplacer: stub,
+            settleDelayNanoseconds: 0
+        )
+        let plan = replacer.planReplacement(
+            span: CaretSpan(original: "i beleive this"),
+            replacement: "I believe this",
+            context: context()
+        )
+
+        let outcome = try await replacer.replace(plan: plan)
+
+        XCTAssertEqual(outcome, .abandonedSelectionMismatch)
+        XCTAssertFalse(recorder.events.contains { $0.hasPrefix("type(") })
+    }
+
     // MARK: - Recording seams
 
     /// Ordered log of every synthesiser + pasteboard call, so tests can assert that the span was
@@ -61,6 +174,10 @@ final class TextReplacementTests: XCTestCase {
         /// exposes nothing, which must not block the fallback.
         var selection: String?
 
+        /// Successive answers to `currentSelection()`, modelling an app that reports the arrow run
+        /// as it applies it. The last entry sticks once exhausted.
+        var selectionSequence: [String]?
+
         init(succeeds: Bool, selection: String? = nil) {
             self.succeeds = succeeds
             self.selection = selection
@@ -71,7 +188,12 @@ final class TextReplacementTests: XCTestCase {
             return succeeds
         }
 
-        func currentSelection() -> String? { selection }
+        func currentSelection() -> String? {
+            guard var queue = selectionSequence, !queue.isEmpty else { return selection }
+            let next = queue.removeFirst()
+            if !queue.isEmpty { selectionSequence = queue }
+            return next
+        }
     }
 
     private func makeReplacer(
