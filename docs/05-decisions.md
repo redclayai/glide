@@ -3892,3 +3892,27 @@ text. Both are now closed:
   This is a mitigation reasoned from the mechanism, not a verified repair — the artifact is
   intermittent and did not reproduce on demand, so if it recurs the next step is a per-app override
   or a post-insert caret nudge to force the repaint, which is the more invasive of the two.
+
+## ADR-132 — No completions while text is selected
+
+- Date: 2026-08-28
+- Status: accepted
+- Supersedes the diagnosis in ADR-131 (that decision's pacing change is kept; it was not the cause).
+- Context: A sentence appeared drawn twice, one copy over the other, in a Chromium-rendered editor.
+  ADR-131 read this as the editor failing to repaint after a rewrite and paced the injection. It
+  recurred on the paced build. The telemetry then settled it: `rewrite-stats.json` had no accept
+  recorded on the day of the second report, so no replacement had happened at all and nothing could
+  have failed to repaint. Both screenshots show the selection toolbar on screen, which is the tell —
+  the user had *selected* the sentence. `AXSelectedTextRange` puts `beforeCursor` at the selection's
+  start, so the completion pipeline generated a suggestion for that prefix and drew it as ghost text
+  at the anchor, on top of the selection. Web fields make it worse because the caret rect for a range
+  resolves to the line start, so the ghost lands almost exactly over the original.
+- Decision: Suppress completions whenever `context.selection.selectedText` is non-empty, gated in
+  `CompletionController.handle(_:)` before the per-app policy checks so it applies to every app and
+  runs ahead of the unchanged-context fast path.
+- Consequences: Correct on its own terms, not just as a fix for the artifact — the next keystroke
+  replaces a selection rather than extending it, so a completion offered there was always wrong
+  content in the wrong place. The lesson worth keeping is the diagnostic one: ADR-131 was reasoned
+  from a plausible mechanism and shipped without a reproduction, and the one piece of evidence that
+  would have refuted it — an accept count that never moved — was available before the change was
+  written.

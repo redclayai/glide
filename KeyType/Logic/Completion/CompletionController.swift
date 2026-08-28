@@ -491,6 +491,18 @@ final class CompletionController {
 
         let context = snapshot.context
         latestContext = context
+
+        // A selection means the ghost has nowhere to sit. Accessibility reports `beforeCursor` as the
+        // text up to the selection's *start*, so a completion generated here is drawn at the anchor —
+        // painted straight over the text the user just selected. In a web editor, where the caret rect
+        // for a range resolves to the line start, that shows up as the sentence rendered twice, one
+        // copy on top of the other. It is also the wrong suggestion to make: the next keystroke
+        // replaces the selection rather than extending it, so there is nothing to complete.
+        guard (context.selection.selectedText ?? "").isEmpty else {
+            reset(keepingReuseHistory: true)
+            return
+        }
+
         let policy = compatibilityStore.policy(for: context)
         guard policy.isCompletionEnabled,
               // Live per-app disable from Settings (reflects runtime toggles without rebuilding the
