@@ -3950,3 +3950,43 @@ text. Both are now closed:
 - Note on method: this is the third attempt at this artifact and the first one diagnosed by probing
   the live app instead of reading the code and reasoning. ADR-131 and ADR-132 were each plausible and
   ADR-132 was even a real bug, but neither was this one. The probe took less time than either.
+
+## ADR-134 — The selection toolbar is a system callout, not a branded one
+
+- Date: 2026-09-03
+- Status: accepted
+- Amends ADR-130, which specified the toolbar's 1A treatment including the leading app mark.
+- Context: Feedback on the shipped toolbar was "pretty ugly, not within the design of iOS and Mac".
+  Three things were doing it, and 1A had specified two of them. A Glide mark on the leading edge; SF
+  Symbols beside labels that already said the same thing, one of which (`checkmark.gobackward`, for
+  Grammar) actually means *revert*; and raised white pills sitting inside a white capsule, so the
+  items competed with the surface for depth.
+- Decision: Follow the system's own text-selection callout instead of the design project's variant —
+  a single capsule of flat text items at menu font size, divided by hairlines, with no vendor glyph,
+  no icons, no per-item fill at rest, and a quiet inset highlight on hover. The capsule's radius is
+  derived from its height rather than fixed at 15pt. The dismiss control keeps its divider and is now
+  styled identically to the actions, so it reads as one more item rather than an appendage.
+- Consequences: 1A remains the reference for the *suggestion capsule*, which is a Glide surface
+  showing Glide's output and can carry the mark. The toolbar is different in kind: it appears over
+  the user's own text and offers actions on it, which makes it furniture. Branding furniture is what
+  made it look like a web component. `ToolbarPillButton` keeps its name and its `symbolName:`
+  parameter — the parameter is now accepted and ignored — so this stayed a one-file change.
+
+## ADR-135 — Polish was dead behind a guard that could never be false
+
+- Date: 2026-09-03
+- Status: accepted
+- Context: Grammar worked; Polish did nothing, and had never worked. `polishTapped` was guarded by
+  `if !busy.isHidden { return }`. Nothing in the file ever assigns `busy.isHidden`: the busy state is
+  driven by `startAnimation`/`stopAnimation` plus `isDisplayedWhenStopped = false`, which governs
+  *drawing*, not the `isHidden` property. `NSView.isHidden` defaults to false, so the condition was
+  always true and the action never fired. The log confirms it — one `polishTapped` ever recorded,
+  with `busyVisible=true`, and no `perform` line behind it, where every `grammarTapped` has one.
+- Decision: Delete the guard. Re-entrancy was already covered twice: `setBusy` disables the buttons,
+  and `perform` guards on its own `isBusy`. Separately, `setBusy` now sets `busy.isHidden` so the
+  property means what it says — the indicator had been holding width in the stack while invisible,
+  which was also inflating the gap before the dismiss divider.
+- Consequences: The general lesson is the one worth keeping: a boolean read from a property nothing
+  writes is not a guard, it is a constant. `isDisplayedWhenStopped` and `isHidden` are different
+  properties and the asymmetry between the two buttons — one guarded, one not — is what let this
+  survive since the feature shipped.
