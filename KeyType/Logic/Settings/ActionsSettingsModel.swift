@@ -58,6 +58,67 @@ final class ActionsSettingsModel: ObservableObject {
 
     func reload() {
         actions = store.allActions
+        sections = Self.sections(from: actions)
+    }
+
+    /// The list, grouped the way the toolbar groups it.
+    ///
+    /// The grouping already exists in the data and the toolbar already uses it; showing a flat list of
+    /// thirty-five rows here was simply not reading it. Custom actions get their own section at the
+    /// top because they are the ones the user came to this pane to find.
+    @Published private(set) var sections: [ActionSection] = []
+
+    struct ActionSection: Identifiable, Equatable {
+        var id: String { name }
+        var name: String
+        var actions: [SelectionAction]
+    }
+
+    static func sections(from actions: [SelectionAction]) -> [ActionSection] {
+        var order: [String] = []
+        var buckets: [String: [SelectionAction]] = [:]
+        for action in actions {
+            let name = action.isBuiltIn ? (action.group ?? "General") : "Yours"
+            if buckets[name] == nil { order.append(name) }
+            buckets[name, default: []].append(action)
+        }
+        // "Yours" first, "General" last — the user's own work at the top, the miscellany at the
+        // bottom, everything else in catalogue order in between.
+        //
+        // Discovery order is captured before sorting rather than read inside the comparator: reading
+        // the array being sorted gives the comparator a half-sorted view of itself, so the tie-break
+        // would depend on how far the sort had got.
+        let discovered = Dictionary(uniqueKeysWithValues: order.enumerated().map { ($0.element, $0.offset) })
+        order.sort { lhs, rhs in
+            func rank(_ name: String) -> Int { name == "Yours" ? 0 : (name == "General" ? 2 : 1) }
+            if rank(lhs) != rank(rhs) { return rank(lhs) < rank(rhs) }
+            return (discovered[lhs] ?? 0) < (discovered[rhs] ?? 0)
+        }
+        return order.map { ActionSection(name: $0, actions: buckets[$0] ?? []) }
+    }
+
+    /// One line under the name saying what the action will *do to you* — the question a list of
+    /// thirty-five is actually being scanned to answer.
+    ///
+    /// Naming the kind was the obvious first choice and the wrong one: inside the "Writing" and "AI"
+    /// sections every row then read "AI", which is the section's own name repeated fifteen times. A
+    /// subtitle that restates its heading is filler, and filler is most of what makes a list look
+    /// unfinished. The outcome differs row to row, so it earns the line.
+    static func subtitle(for action: SelectionAction) -> String {
+        let outcome: String
+        switch action.output {
+        case .replaceSelection: outcome = "Replaces your text"
+        case .copyToClipboard: outcome = "Copies the result"
+        case .openURL: outcome = "Opens a link"
+        case .preview: outcome = "Shows the answer"
+        }
+        // The kind is named only where it changes how much to trust the row.
+        switch action.kind {
+        case .javaScript: return "JavaScript · \(outcome.lowercased())"
+        case .shell: return "Command · \(outcome.lowercased())"
+        case .appleScript: return "AppleScript · \(outcome.lowercased())"
+        case .prompt, .transform, .url: return outcome
+        }
     }
 
     var selectedAction: SelectionAction? {

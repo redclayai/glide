@@ -4170,3 +4170,32 @@ text. Both are now closed:
 - Consequences: `.preview` output and model results now share one surface, which is right — both are
   "here is an answer, decide what to do with it". The immediate-apply path survives for transforms,
   which is the majority of the catalogue and the part that felt instant.
+
+## ADR-142 — Polish is hierarchy and rhythm, not ornament
+
+- Date: 2026-09-05
+- Status: accepted
+- Context: Feedback that the UI looked "very vibe code-looking and not polished at all", with two
+  web-design galleries as references. The Actions pane deserved it: thirty-five identical rows, a
+  checkbox column, a ghost pin on every row, 28pt row height, no secondary text, and the global
+  switches stacked underneath the detail pane as a second `Form` with its own background.
+- Decision on the reference class, stated because it drove everything else: Glide is a native macOS
+  app, and porting a web gallery's aesthetic — gradient surfaces, display-weight type, card grids —
+  into a Settings window makes it look *less* finished, not more. What those references actually have
+  is hierarchy, spacing rhythm, restraint and real empty states, and that is what was missing. The
+  fixes are structural, not decorative:
+  - Sections, from grouping data the toolbar was already using and the list was not reading.
+  - A subtitle per row saying what the action *does to you*. The first attempt named the kind, which
+    made every row in the AI and Writing sections read "AI" — a subtitle that restates its own
+    heading is filler, and filler is most of what makes a list look unfinished.
+  - Switches over checkboxes; icons in uniform tiles, because SF Symbols vary enough in optical
+    weight that a bare glyph column never aligns.
+  - Pins on hover. Thirty-five permanent ghost pins is noise that teaches nothing.
+  - Global options in a footer belonging to the pane, not inside the detail belonging to one action.
+- Also fixed, and the more serious of the two: the toolbar re-anchored itself constantly while in
+  use. The poll compares the current selection against the shown one by exact string, and web and
+  Electron apps return the same selection with and without a trailing newline between reads — so an
+  unchanged selection registered as changed several times a second and the panel jumped. Comparison
+  is now whitespace-insensitive, and a visible panel never repositions while the pointer is over it
+  or one of its menus is open. The general rule: a floating control the user is reaching for does not
+  move, whatever the model underneath it thinks changed.
