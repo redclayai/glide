@@ -4282,3 +4282,32 @@ text. Both are now closed:
   the item it belongs to.
 - Verified: a chevron click followed by ten downward pointer moves produces one presentation and no
   further movement.
+
+## ADR-146 — Whatever is offering the key gets the key
+
+- Date: 2026-09-05
+- Status: accepted
+- Context: "The tab does not overwrite the text", with a screenshot of a spelling capsule showing
+  `test.` and a Tab chip. The capsule was real, the chip was real, and Tab accepted an autocomplete
+  word instead — the logs show `REWRITE origin=proofreader … → SHOWN` followed by `ACCEPT(word)`.
+- Cause: `rewriteOwnsAcceptKey` required `origin == .model`. A spelling fix therefore fell past the
+  rewrite branch into the completion branch. The comment sitting directly above that flag already
+  described the failure without noticing it applied here too: clearing the completion is not enough,
+  because the pipeline re-shows within the second it takes the user to reach for the key. That race
+  was guarded for model rewrites and left open for spelling ones.
+- Decision: any pending rewrite owns the accept key. The safety that makes this correct already
+  exists upstream — a rewrite is only *shown* when nothing else claims the key (a model fix dismisses
+  the completion; a spelling fix is suppressed outright while one is visible). So a capsule on screen
+  earned the key when it appeared, and a completion that re-showed behind it must not take it back.
+  The general rule, which is really a UI honesty rule: a control that draws a key on itself must be
+  the thing that key operates.
+- Verified: `testt.` → capsule shown → Tab → `REWRITE accept → APPLIED(accessibilitySelectedText)`,
+  document text corrected. Verified with completions disabled; the specific re-show race was not
+  staged, because it depends on the completion pipeline's timing. The change makes the rewrite branch
+  unconditional and it is evaluated before the completion branch, so the ordering is structural.
+- Also fixed: the Tab chip compressed to "T…" under a tight width, because the suggestion text beside
+  it was willing to wrap and the chip was not pinned. An instruction the user cannot read is worse
+  than no instruction.
+- Left alone, and worth knowing: a spelling fix is still suppressed while a completion is visible.
+  That is a real design choice — one suggestion at a time — but since completions fire constantly it
+  means corrections surface far less often than typos occur.

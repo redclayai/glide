@@ -65,6 +65,11 @@ public struct SuggestionCapsuleView: View {
                     .padding(.horizontal, SuggestionStyle.chipHorizontalPadding)
                     .padding(.vertical, SuggestionStyle.chipVerticalPadding)
                     .background(chip)
+                    // Never compressed. The suggestion text next to it is happy to wrap, so under a
+                    // tight width the layout took its space from the chip instead and rendered the
+                    // key as "T…" — an instruction the user cannot follow.
+                    .fixedSize()
+                    .layoutPriority(1)
                     .accessibilityHidden(true)
             }
         }

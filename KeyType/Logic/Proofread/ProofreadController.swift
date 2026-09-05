@@ -225,13 +225,23 @@ final class ProofreadController {
 
     /// True when the rewrite should get the accept key *ahead of* a visible completion.
     ///
-    /// Clearing the completion at present time is not enough on its own: the completion pipeline
-    /// keeps running and re-shows within the second it takes the user to reach for Tab, and then it
-    /// wins the key again. A model fix only exists after a pause, so it outranks a prediction
-    /// outright rather than depending on having cleared one earlier. A spelling fix does not — it
-    /// arrives mid-flow, where the completion is about the word being typed.
+    /// Whatever is on screen offering Tab gets Tab, whichever pass produced it.
+    ///
+    /// This used to be restricted to model rewrites, on the reasoning that a spelling fix arrives
+    /// mid-flow where the completion is about the word being typed. The restriction was wrong, and
+    /// the comment it replaced explains why without noticing: clearing the completion at present time
+    /// is not enough, because the pipeline keeps running and re-shows within the second it takes the
+    /// user to reach for the key. That race was guarded for `.model` and left open for
+    /// `.proofreader` — so a spelling capsule appeared with a Tab chip, a completion quietly
+    /// reappeared behind it, and Tab accepted the completion instead. The user pressed the key the
+    /// capsule told them to press and got something else.
+    ///
+    /// A rewrite is only ever *shown* when nothing else is claiming the key: a model fix dismisses
+    /// the completion first, and a spelling fix is suppressed outright while one is visible (see
+    /// `present`). So if a capsule is on screen it earned the key when it appeared, and a completion
+    /// that re-showed afterwards must not take it back.
     var rewriteOwnsAcceptKey: Bool {
-        canAcceptRewrite && pending?.origin == .model
+        canAcceptRewrite
     }
 
     func acceptRewrite() {
