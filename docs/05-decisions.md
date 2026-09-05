@@ -4054,3 +4054,31 @@ text. Both are now closed:
   before I noticed the cause — the object IDs I had picked were already in use. `plutil -lint` passes
   on a pbxproj with duplicate IDs, so it is no help; `xcodebuild -list` is the check that actually
   catches it.
+
+## ADR-138 — Prompt actions are few-shot, because the shipped model is a base model
+
+- Date: 2026-09-05
+- Status: accepted
+- Extends ADR-137.
+- Context: Reported that "more casual and other features like longer, shorter, seem not to be
+  working". The log said otherwise — every action fired, the model produced 168 tokens, and
+  `replaceSelection` reported success. Running the shipped prompts against the shipped GGUF in a
+  scratch harness settled it: `Qwen3.5-2B-Base` returned the input **verbatim** for shorten, expand,
+  formal and casual, and merely prefixed "- " for bullets. It is a base model; a ChatML instruction
+  does nothing.
+- What makes this worth an ADR: the codebase already knew. `Style.inlineGrammar` is prompted few-shot
+  with a comment explaining that this exact model ignores instructions, and ADR-138's cause is that
+  ADR-137 shipped nine instruction-following actions anyway, without ever running one against the
+  local engine. The knowledge was written down twenty lines from the code that ignored it.
+- Decision: Two changes.
+  1. `SelectionAction.fewShot` carries a short header and worked pairs; `RewriteInstruction` carries
+     them to whichever engine answers. The local engine builds a few-shot prompt when examples are
+     present and stops at the newline, exactly as the grammar pass does; a cloud engine ignores them,
+     because a chat model does not need them. Measured after: 7 of 8 cases produce real rewrites.
+  2. A `.replaceSelection` result identical to the selection is now `ActionError.unchanged` rather
+     than a silent no-op replacement. An engine echoing the input was indistinguishable from the
+     feature being broken, which is precisely why this took a user report to find.
+- Consequences: Expand remains weak on already-long input — a 2B limit, not a bug — and now says "No
+  change suggested" instead of appearing dead. The general rule for this repo: a prompt action added
+  to the catalogue must be run against the *local* engine before shipping, because the cloud engines
+  will make almost any prompt look fine.

@@ -51,6 +51,14 @@ public enum ActionCatalog {
             symbolName: "arrow.down.right.and.arrow.up.left",
             kind: .prompt("Rewrite the text below to be meaningfully shorter while keeping every substantive point. Reply with the rewritten text and nothing else."),
             conditions: ActionConditions(minimumWords: 12),
+            fewShot: FewShotPrompt(
+                header: "Rewrite each sentence to be shorter while keeping the meaning.",
+                examples: [
+                    PromptExample("We were unable to complete the migration before the deadline arrived.", "We missed the migration deadline."),
+                    PromptExample("I wanted to reach out and see whether you had any availability next week.", "Are you free next week?"),
+                    PromptExample("The report that you sent over yesterday contained a number of errors.", "Yesterday's report had several errors."),
+                ]
+            ),
             isBuiltIn: true,
             priority: 80
         ),
@@ -60,6 +68,14 @@ public enum ActionCatalog {
             symbolName: "arrow.up.left.and.arrow.down.right",
             kind: .prompt("Expand the text below with relevant detail, keeping the original voice. Do not invent facts. Reply with the rewritten text and nothing else."),
             conditions: ActionConditions(minimumWords: 3, maximumWords: 60),
+            fewShot: FewShotPrompt(
+                header: "Rewrite each sentence with more supporting detail, keeping the same voice.",
+                examples: [
+                    PromptExample("Are you free next week?", "Are you free at any point next week? Happy to work around whatever suits you."),
+                    PromptExample("The build is broken.", "The build is broken — it started failing after the most recent change and nothing is getting through CI."),
+                    PromptExample("Sending the notes now.", "Sending the notes over now, so you have them before the meeting starts."),
+                ]
+            ),
             isBuiltIn: true,
             priority: 55
         ),
@@ -87,6 +103,14 @@ public enum ActionCatalog {
             symbolName: "briefcase",
             kind: .prompt("Rewrite the text below in a professional register, keeping the meaning and length roughly the same. Reply with the rewritten text and nothing else."),
             conditions: ActionConditions(minimumWords: 3),
+            fewShot: FewShotPrompt(
+                header: "Rewrite each sentence in a professional tone.",
+                examples: [
+                    PromptExample("Does that time work for you?", "Please confirm whether that time is convenient."),
+                    PromptExample("Heads up — the meeting moved.", "Please note that the meeting has been rescheduled."),
+                    PromptExample("Can you take a look at this?", "Could you please review this at your convenience?"),
+                ]
+            ),
             isBuiltIn: true,
             priority: 50
         ),
@@ -96,6 +120,14 @@ public enum ActionCatalog {
             symbolName: "bubble.left",
             kind: .prompt("Rewrite the text below in a warm, casual register, keeping the meaning. Reply with the rewritten text and nothing else."),
             conditions: ActionConditions(minimumWords: 3),
+            fewShot: FewShotPrompt(
+                header: "Rewrite each sentence in a warm, casual tone.",
+                examples: [
+                    PromptExample("Please advise whether the proposed time is acceptable.", "Does that time work for you?"),
+                    PromptExample("I am writing to inform you that the meeting has been rescheduled.", "Heads up — the meeting moved."),
+                    PromptExample("Kindly review the attached document at your earliest convenience.", "Mind taking a look at this when you get a sec?"),
+                ]
+            ),
             isBuiltIn: true,
             priority: 45
         ),
@@ -105,6 +137,14 @@ public enum ActionCatalog {
             symbolName: "character.book.closed",
             kind: .prompt("Translate the text below into English. If it is already English, reply with it unchanged. Reply with the translation and nothing else."),
             conditions: ActionConditions(minimumWords: 1, requiresURL: false),
+            fewShot: FewShotPrompt(
+                header: "Translate each sentence into English.",
+                examples: [
+                    PromptExample("Je serai en retard de dix minutes.", "I'll be ten minutes late."),
+                    PromptExample("¿Puedes enviarme el archivo?", "Can you send me the file?"),
+                    PromptExample("Das Treffen wurde auf morgen verschoben.", "The meeting has been moved to tomorrow."),
+                ]
+            ),
             isBuiltIn: true,
             priority: 40
         ),

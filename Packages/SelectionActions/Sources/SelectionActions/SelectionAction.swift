@@ -36,6 +36,18 @@ public struct SelectionAction: Identifiable, Codable, Equatable, Sendable {
     /// a corrupted built-in is a support problem, where a corrupted custom action is just the user's
     /// own to fix.
     public var isBuiltIn: Bool
+    /// Worked examples for engines that cannot follow an instruction.
+    ///
+    /// Measured against the shipped on-device model (`Qwen3.5-2B-Base`), a *base* model: asked by
+    /// ChatML instruction to shorten, expand, or change register, it returned the input **verbatim**
+    /// every time. Given three worked examples and asked to continue the pattern, it shortened and
+    /// re-registered correctly. That is the same finding the inline grammar pass already acts on, and
+    /// the reason it is prompted few-shot.
+    ///
+    /// Optional, so an action can decline to offer any — and so the property can be added without
+    /// invalidating a stored custom action, since a synthesized decoder treats a missing key for an
+    /// Optional as nil.
+    public var fewShot: FewShotPrompt?
     /// Tie-breaker among actions that match equally well. Higher wins. Only meaningful for built-ins;
     /// custom actions all start at zero and rise through use.
     public var priority: Int
@@ -47,6 +59,7 @@ public struct SelectionAction: Identifiable, Codable, Equatable, Sendable {
         kind: ActionKind,
         output: ActionOutput = .replaceSelection,
         conditions: ActionConditions = .init(),
+        fewShot: FewShotPrompt? = nil,
         isBuiltIn: Bool = false,
         priority: Int = 0
     ) {
@@ -56,6 +69,7 @@ public struct SelectionAction: Identifiable, Codable, Equatable, Sendable {
         self.kind = kind
         self.output = output
         self.conditions = conditions
+        self.fewShot = fewShot
         self.isBuiltIn = isBuiltIn
         self.priority = priority
     }
@@ -77,6 +91,30 @@ public struct SelectionAction: Identifiable, Codable, Equatable, Sendable {
         case .shell, .appleScript:
             return .runsCode
         }
+    }
+}
+
+/// A short header plus worked examples, for a base model that continues patterns rather than obeying
+/// instructions. The header is separate from the action's `instruction` on purpose: the instruction
+/// ends "Reply with the rewritten text and nothing else", which is addressed to a chat model and is
+/// noise in front of a list of examples.
+public struct FewShotPrompt: Codable, Equatable, Sendable {
+    public var header: String
+    public var examples: [PromptExample]
+
+    public init(header: String, examples: [PromptExample]) {
+        self.header = header
+        self.examples = examples
+    }
+}
+
+public struct PromptExample: Codable, Equatable, Sendable {
+    public var original: String
+    public var rewritten: String
+
+    public init(_ original: String, _ rewritten: String) {
+        self.original = original
+        self.rewritten = rewritten
     }
 }
 

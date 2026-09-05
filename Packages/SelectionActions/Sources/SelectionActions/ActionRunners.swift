@@ -40,6 +40,10 @@ public struct ActionResult: Equatable, Sendable {
 
 public enum ActionError: LocalizedError, Equatable {
     case emptyResult
+    /// The engine handed back exactly what it was given. Reported rather than applied: replacing a
+    /// selection with itself looks identical to the action doing nothing, and the user deserves to be
+    /// told which it was.
+    case unchanged
     case codeExecutionDisabled
     case invalidURL(String)
     case scriptFailed(String)
@@ -49,6 +53,7 @@ public enum ActionError: LocalizedError, Equatable {
     public var errorDescription: String? {
         switch self {
         case .emptyResult: return "The action produced no text."
+        case .unchanged: return "No change suggested."
         case .codeExecutionDisabled: return "Shell and AppleScript actions are turned off in Settings."
         case let .invalidURL(template): return "That action's URL isn't valid: \(template)"
         case let .scriptFailed(message): return message
@@ -74,7 +79,11 @@ public struct ExecutionPolicy: Equatable, Sendable {
 
 public struct ActionRunner: ActionRunning {
     /// Answers a prompt action. Injected — see the file header.
-    public typealias ModelResponder = @Sendable (_ instruction: String, _ text: String) async throws -> String
+    public typealias ModelResponder = @Sendable (
+        _ instruction: String,
+        _ fewShot: FewShotPrompt?,
+        _ text: String
+    ) async throws -> String
 
     private let policy: ExecutionPolicy
     private let model: ModelResponder?
@@ -88,6 +97,12 @@ public struct ActionRunner: ActionRunning {
         let text = try await produce(action, context: context)
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw ActionError.emptyResult }
+        // Only for actions meant to change the text. `Copy` legitimately returns the selection
+        // unchanged, and a `.preview` answer that happens to echo the input is still an answer.
+        if action.output == .replaceSelection,
+           trimmed == context.text.trimmingCharacters(in: .whitespacesAndNewlines) {
+            throw ActionError.unchanged
+        }
         return ActionResult(output: action.output, text: trimmed)
     }
 
@@ -98,7 +113,7 @@ public struct ActionRunner: ActionRunning {
 
         case let .prompt(instruction):
             guard let model else { throw ActionError.modelUnavailable }
-            return try await model(instruction, context.text)
+            return try await model(instruction, action.fewShot, context.text)
 
         case let .javaScript(source):
             return try JavaScriptActionRunner.run(source, text: context.text)

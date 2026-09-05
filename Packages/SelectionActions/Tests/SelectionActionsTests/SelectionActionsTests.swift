@@ -273,9 +273,44 @@ final class ActionRunnerTests: XCTestCase {
     }
 
     func testPromptGoesToTheInjectedModel() async throws {
-        let runner = ActionRunner(model: { instruction, text in "\(instruction)|\(text)" })
+        let runner = ActionRunner(model: { instruction, _, text in "\(instruction)|\(text)" })
         let result = try await runner.run(action(.prompt("FIX")), on: SelectionContext(text: "abc"))
         XCTAssertEqual(result.text, "FIX|abc")
+    }
+
+    /// The reason `fewShot` exists at all: the engine has to receive it to use it.
+    func testFewShotExamplesReachTheModel() async throws {
+        var seen: FewShotPrompt?
+        let runner = ActionRunner(model: { _, fewShot, text in
+            seen = fewShot
+            return text.uppercased()
+        })
+        var prompt = action(.prompt("FIX"))
+        prompt.fewShot = FewShotPrompt(header: "Shorten each one.", examples: [PromptExample("a b c", "a")])
+        _ = try await runner.run(prompt, on: SelectionContext(text: "abc"))
+        XCTAssertEqual(seen?.header, "Shorten each one.")
+        XCTAssertEqual(seen?.examples.first?.rewritten, "a")
+    }
+
+    /// A replacement that equals the selection is reported, not applied — otherwise "it did nothing"
+    /// and "it succeeded" look identical to the user. See ADR-138.
+    func testAnEchoedResultIsReportedRatherThanApplied() async {
+        let runner = ActionRunner(model: { _, _, text in text })
+        do {
+            _ = try await runner.run(action(.prompt("FIX")), on: SelectionContext(text: "unchanged text"))
+            XCTFail("expected unchanged")
+        } catch {
+            XCTAssertEqual(error as? ActionError, .unchanged)
+        }
+    }
+
+    /// But Copy legitimately returns the selection verbatim, and a preview that echoes is still an
+    /// answer — so the check is scoped to actions that replace the document.
+    func testEchoIsFineForOutputsThatDoNotReplaceTheSelection() async throws {
+        let runner = ActionRunner(model: { _, _, text in text })
+        let copy = action(.prompt("FIX"), output: .copyToClipboard)
+        let result = try await runner.run(copy, on: SelectionContext(text: "unchanged text"))
+        XCTAssertEqual(result.text, "unchanged text")
     }
 
     func testPromptWithoutAModelIsAnError() async {

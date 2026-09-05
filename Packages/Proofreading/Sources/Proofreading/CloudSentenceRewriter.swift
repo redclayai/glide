@@ -25,15 +25,47 @@ import Foundation
 /// What the caller is asking for. The distinction is whether the writer's wording may change:
 /// `grammar` repairs, `polish` rephrases. Keeping both in one place means the on-device path and the
 /// hosted path ask for the same thing in the same words.
+/// An instruction plus, optionally, worked examples.
+///
+/// The examples exist for base models. Measured against the shipped `Qwen3.5-2B-Base`, a ChatML
+/// instruction to shorten or change register returned the input verbatim every time, where three
+/// worked examples produced a correct rewrite. A chat model needs only the instruction, so the cloud
+/// path ignores `examples` entirely.
+public struct RewriteInstruction: Sendable, Equatable, Codable {
+    public var instruction: String
+    /// `(original, rewritten)` pairs, plus the short header that introduces them.
+    public var fewShotHeader: String?
+    public var examples: [RewriteExample]
+
+    public init(instruction: String, fewShotHeader: String? = nil, examples: [RewriteExample] = []) {
+        self.instruction = instruction
+        self.fewShotHeader = fewShotHeader
+        self.examples = examples
+    }
+
+    public var hasExamples: Bool { !examples.isEmpty && fewShotHeader != nil }
+}
+
+public struct RewriteExample: Sendable, Equatable, Codable {
+    public var original: String
+    public var rewritten: String
+
+    public init(original: String, rewritten: String) {
+        self.original = original
+        self.rewritten = rewritten
+    }
+}
+
 /// `Equatable` is declared rather than synthesized — an enum loses the free conformance as soon as
 /// one case carries an associated value.
 public enum CloudRewriteStyle: Sendable, Equatable {
     case grammar
     case polish
-    /// An arbitrary instruction. Every prompt-kind selection action arrives this way, so provider
-    /// plumbing, retry handling and rate-limit reporting are shared with the two built-in styles
-    /// rather than duplicated per action.
-    case custom(String)
+    /// An arbitrary instruction, optionally with worked examples for an engine that cannot follow
+    /// one. Every prompt-kind selection action arrives this way, so provider plumbing, retry handling
+    /// and rate-limit reporting are shared with the two built-in styles rather than duplicated per
+    /// action. A cloud model ignores the examples — it does not need them.
+    case custom(RewriteInstruction)
 
     var instruction: String {
         switch self {
@@ -49,8 +81,8 @@ public enum CloudRewriteStyle: Sendable, Equatable {
             and a natural tone in the author's voice. Do not add information, do not change what is \
             being claimed, and do not make it longer. Reply with the rewritten text and nothing else.
             """
-        case let .custom(instruction):
-            return instruction
+        case let .custom(spec):
+            return spec.instruction
         }
     }
 }
