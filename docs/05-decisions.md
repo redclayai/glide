@@ -3990,3 +3990,25 @@ text. Both are now closed:
   writes is not a guard, it is a constant. `isDisplayedWhenStopped` and `isHidden` are different
   properties and the asymmetry between the two buttons — one guarded, one not — is what let this
   survive since the feature shipped.
+
+## ADR-136 — The selection toolbar verifies its accessibility write too
+
+- Date: 2026-09-04
+- Status: accepted
+- Extends ADR-133 to the one code path that had its own copy of the defect.
+- Context: ADR-133 established that Chromium answers an `AXSelectedText` write with `.success` and
+  discards it, and fixed the autocomplete replacement path accordingly.
+  `SelectionRewriteController.replaceSelection` — the path behind the Polish and Grammar buttons —
+  had an independent implementation with the same flaw, and its comment even named the hazard
+  ("some apps return success but no-op") before concluding "Treat success as done". Returning true
+  meant the universal clipboard tier behind it never ran, so both buttons silently did nothing in
+  every web-rendered app. This went unnoticed because Polish could not fire at all until 0.28
+  (ADR-135), and Grammar is more often taken through the inline capsule than the button.
+- Decision: Take the accessibility tier only when the field's `AXValue` is observed to change, and
+  fall through to the clipboard paste when it does not. Poll rather than sample once, for the reason
+  measured in ADR-133: a Chromium field needs roughly 75ms to publish the change, and a single
+  immediate read would misread a successful write as a failure and paste the text a second time.
+- Consequences: A dropped write now costs 400ms before the paste, which is the right trade — the
+  alternative failure is duplicated text. The wider lesson is about duplication rather than about
+  Accessibility: two paths did the same job, one learned, and the other kept the bug. Worth folding
+  these into a shared verified-write helper the next time either is touched.
