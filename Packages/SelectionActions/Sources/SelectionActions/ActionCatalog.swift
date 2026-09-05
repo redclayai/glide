@@ -33,7 +33,7 @@ public enum ActionCatalog {
             symbolName: "text.badge.checkmark",
             kind: .prompt("Correct only the spelling, grammar and punctuation of the text below. Keep the wording, tone and meaning exactly as they are. Reply with the corrected text and nothing else."),
             conditions: ActionConditions(minimumWords: 2),
-            isBuiltIn: true,
+            group: "Writing", isBuiltIn: true,
             priority: 100
         ),
         SelectionAction(
@@ -42,7 +42,7 @@ public enum ActionCatalog {
             symbolName: "wand.and.stars",
             kind: .prompt("Rewrite the text below to be clearer and more polished, keeping the original meaning and a natural tone. Reply with the rewritten text and nothing else."),
             conditions: ActionConditions(minimumWords: 3),
-            isBuiltIn: true,
+            group: "Writing", isBuiltIn: true,
             priority: 95
         ),
         SelectionAction(
@@ -51,7 +51,7 @@ public enum ActionCatalog {
             symbolName: "arrow.down.right.and.arrow.up.left",
             kind: .prompt("Rewrite the text below to be meaningfully shorter while keeping every substantive point. Reply with the rewritten text and nothing else."),
             conditions: ActionConditions(minimumWords: 12),
-            fewShot: FewShotPrompt(
+            group: "Writing", fewShot: FewShotPrompt(
                 header: "Rewrite each sentence to be shorter while keeping the meaning.",
                 examples: [
                     PromptExample("We were unable to complete the migration before the deadline arrived.", "We missed the migration deadline."),
@@ -68,7 +68,7 @@ public enum ActionCatalog {
             symbolName: "arrow.up.left.and.arrow.down.right",
             kind: .prompt("Expand the text below with relevant detail, keeping the original voice. Do not invent facts. Reply with the rewritten text and nothing else."),
             conditions: ActionConditions(minimumWords: 3, maximumWords: 60),
-            fewShot: FewShotPrompt(
+            group: "Writing", fewShot: FewShotPrompt(
                 header: "Rewrite each sentence with more supporting detail, keeping the same voice.",
                 examples: [
                     PromptExample("Are you free next week?", "Are you free at any point next week? Happy to work around whatever suits you."),
@@ -85,7 +85,7 @@ public enum ActionCatalog {
             symbolName: "text.line.first.and.arrowtriangle.forward",
             kind: .prompt("Summarize the text below in one short paragraph. Reply with the summary and nothing else."),
             conditions: ActionConditions(minimumWords: 25),
-            isBuiltIn: true,
+            group: "AI", isBuiltIn: true,
             priority: 85
         ),
         SelectionAction(
@@ -94,7 +94,7 @@ public enum ActionCatalog {
             symbolName: "list.bullet",
             kind: .prompt("Rewrite the text below as a concise bulleted list, one point per line, each line starting with \"- \". Reply with the list and nothing else."),
             conditions: ActionConditions(minimumWords: 20),
-            isBuiltIn: true,
+            group: "Writing", isBuiltIn: true,
             priority: 60
         ),
         SelectionAction(
@@ -103,7 +103,7 @@ public enum ActionCatalog {
             symbolName: "briefcase",
             kind: .prompt("Rewrite the text below in a professional register, keeping the meaning and length roughly the same. Reply with the rewritten text and nothing else."),
             conditions: ActionConditions(minimumWords: 3),
-            fewShot: FewShotPrompt(
+            group: "Writing", fewShot: FewShotPrompt(
                 header: "Rewrite each sentence in a professional tone.",
                 examples: [
                     PromptExample("Does that time work for you?", "Please confirm whether that time is convenient."),
@@ -120,7 +120,7 @@ public enum ActionCatalog {
             symbolName: "bubble.left",
             kind: .prompt("Rewrite the text below in a warm, casual register, keeping the meaning. Reply with the rewritten text and nothing else."),
             conditions: ActionConditions(minimumWords: 3),
-            fewShot: FewShotPrompt(
+            group: "Writing", fewShot: FewShotPrompt(
                 header: "Rewrite each sentence in a warm, casual tone.",
                 examples: [
                     PromptExample("Please advise whether the proposed time is acceptable.", "Does that time work for you?"),
@@ -137,7 +137,7 @@ public enum ActionCatalog {
             symbolName: "character.book.closed",
             kind: .prompt("Translate the text below into English. If it is already English, reply with it unchanged. Reply with the translation and nothing else."),
             conditions: ActionConditions(minimumWords: 1, requiresURL: false),
-            fewShot: FewShotPrompt(
+            group: "AI", fewShot: FewShotPrompt(
                 header: "Translate each sentence into English.",
                 examples: [
                     PromptExample("Je serai en retard de dix minutes.", "I'll be ten minutes late."),
@@ -155,7 +155,7 @@ public enum ActionCatalog {
             kind: .prompt("Explain the text below in plain language, briefly. Reply with the explanation and nothing else."),
             output: .preview,
             conditions: ActionConditions(minimumWords: 2),
-            isBuiltIn: true,
+            group: "AI", isBuiltIn: true,
             priority: 35
         ),
         SelectionAction(
@@ -165,7 +165,7 @@ public enum ActionCatalog {
             kind: .prompt("Draft a brief, natural reply to the message below. Reply with the draft and nothing else."),
             output: .copyToClipboard,
             conditions: ActionConditions(minimumWords: 8),
-            isBuiltIn: true,
+            group: "AI", isBuiltIn: true,
             priority: 30
         ),
     ]
@@ -178,36 +178,36 @@ public enum ActionCatalog {
                         isBuiltIn: true, priority: 90),
         SelectionAction(id: "builtin.uppercase", title: "UPPERCASE", symbolName: "textformat.size.larger",
                         kind: .transform(.uppercase), conditions: ActionConditions(maximumWords: 40),
-                        isBuiltIn: true, priority: 20),
+                        group: "Text", isBuiltIn: true, priority: 20),
         SelectionAction(id: "builtin.lowercase", title: "lowercase", symbolName: "textformat.size.smaller",
                         kind: .transform(.lowercase), conditions: ActionConditions(maximumWords: 40),
-                        isBuiltIn: true, priority: 20),
+                        group: "Text", isBuiltIn: true, priority: 20),
         SelectionAction(id: "builtin.titlecase", title: "Title Case", symbolName: "textformat",
                         kind: .transform(.titleCase), conditions: ActionConditions(maximumWords: 25),
-                        isBuiltIn: true, priority: 22),
+                        group: "Text", isBuiltIn: true, priority: 22),
         SelectionAction(id: "builtin.sentencecase", title: "Sentence case", symbolName: "textformat.abc",
                         kind: .transform(.sentenceCase), conditions: ActionConditions(minimumWords: 2),
-                        isBuiltIn: true, priority: 18),
+                        group: "Text", isBuiltIn: true, priority: 18),
         SelectionAction(id: "builtin.trim", title: "Trim", symbolName: "scissors",
-                        kind: .transform(.trimWhitespace), isBuiltIn: true, priority: 15),
+                        kind: .transform(.trimWhitespace), group: "Text", isBuiltIn: true, priority: 15),
         SelectionAction(id: "builtin.collapse", title: "Collapse spaces", symbolName: "arrow.right.and.line.vertical.and.arrow.left",
-                        kind: .transform(.collapseWhitespace), isBuiltIn: true, priority: 14),
+                        kind: .transform(.collapseWhitespace), group: "Text", isBuiltIn: true, priority: 14),
         SelectionAction(id: "builtin.joinlines", title: "Join lines", symbolName: "arrow.turn.up.right",
                         kind: .transform(.removeLineBreaks),
                         conditions: ActionConditions(requiresMultipleLines: true),
-                        isBuiltIn: true, priority: 42),
+                        group: "Lines", isBuiltIn: true, priority: 42),
         SelectionAction(id: "builtin.sortlines", title: "Sort lines", symbolName: "arrow.up.arrow.down",
                         kind: .transform(.sortLines),
                         conditions: ActionConditions(requiresMultipleLines: true),
-                        isBuiltIn: true, priority: 38),
+                        group: "Lines", isBuiltIn: true, priority: 38),
         SelectionAction(id: "builtin.reverselines", title: "Reverse lines", symbolName: "arrow.uturn.up",
                         kind: .transform(.reverseLines),
                         conditions: ActionConditions(requiresMultipleLines: true),
-                        isBuiltIn: true, priority: 12),
+                        group: "Lines", isBuiltIn: true, priority: 12),
         SelectionAction(id: "builtin.dedupe", title: "Remove duplicates", symbolName: "line.3.horizontal.decrease",
                         kind: .transform(.deduplicateLines),
                         conditions: ActionConditions(requiresMultipleLines: true),
-                        isBuiltIn: true, priority: 36),
+                        group: "Lines", isBuiltIn: true, priority: 36),
         SelectionAction(id: "builtin.count", title: "Count", symbolName: "number",
                         kind: .transform(.countCharactersAndWords), output: .preview,
                         isBuiltIn: true, priority: 25),
@@ -218,19 +218,19 @@ public enum ActionCatalog {
     static let coding: [SelectionAction] = [
         SelectionAction(id: "builtin.slugify", title: "Slugify", symbolName: "link",
                         kind: .transform(.slugify), conditions: ActionConditions(maximumWords: 20),
-                        isBuiltIn: true, priority: 16),
+                        group: "Text", isBuiltIn: true, priority: 16),
         SelectionAction(id: "builtin.base64encode", title: "Base64 encode", symbolName: "lock.doc",
                         kind: .transform(.base64Encode), conditions: ActionConditions(maximumCharacters: 4000),
-                        isBuiltIn: true, priority: 10),
+                        group: "Encode", isBuiltIn: true, priority: 10),
         SelectionAction(id: "builtin.base64decode", title: "Base64 decode", symbolName: "lock.open.doc",
                         kind: .transform(.base64Decode), conditions: ActionConditions(requiresMultipleLines: false),
-                        isBuiltIn: true, priority: 10),
+                        group: "Encode", isBuiltIn: true, priority: 10),
         SelectionAction(id: "builtin.urlencode", title: "URL encode", symbolName: "percent",
                         kind: .transform(.urlEncode), conditions: ActionConditions(maximumWords: 30),
-                        isBuiltIn: true, priority: 10),
+                        group: "Encode", isBuiltIn: true, priority: 10),
         SelectionAction(id: "builtin.urldecode", title: "URL decode", symbolName: "percent",
                         kind: .transform(.urlDecode), conditions: ActionConditions(maximumWords: 30),
-                        isBuiltIn: true, priority: 10),
+                        group: "Encode", isBuiltIn: true, priority: 10),
         SelectionAction(
             id: "builtin.explaincode",
             title: "Explain code",
@@ -238,7 +238,7 @@ public enum ActionCatalog {
             kind: .prompt("Explain what the code below does, briefly and in plain language. Reply with the explanation and nothing else."),
             output: .preview,
             conditions: ActionConditions(requiresCodeLike: true),
-            isBuiltIn: true, priority: 88
+            group: "Code", isBuiltIn: true, priority: 88
         ),
         SelectionAction(
             id: "builtin.commentcode",
@@ -246,7 +246,7 @@ public enum ActionCatalog {
             symbolName: "text.bubble",
             kind: .prompt("Add brief explanatory comments to the code below, in its own language's comment syntax. Change nothing else. Reply with the commented code and nothing else."),
             conditions: ActionConditions(requiresCodeLike: true),
-            isBuiltIn: true, priority: 70
+            group: "Code", isBuiltIn: true, priority: 70
         ),
         SelectionAction(
             id: "builtin.json",
@@ -254,7 +254,7 @@ public enum ActionCatalog {
             symbolName: "curlybraces.square",
             kind: .javaScript("JSON.stringify(JSON.parse(text), null, 2)"),
             conditions: ActionConditions(requiresCodeLike: true),
-            isBuiltIn: true, priority: 65
+            group: "Code", isBuiltIn: true, priority: 65
         ),
     ]
 
@@ -282,6 +282,6 @@ public enum ActionCatalog {
         SelectionAction(id: "builtin.maps", title: "Map", symbolName: "map",
                         kind: .url("https://maps.apple.com/?q={{text}}"), output: .openURL,
                         conditions: ActionConditions(minimumWords: 2, maximumWords: 12),
-                        isBuiltIn: true, priority: 8),
+                        group: "Links", isBuiltIn: true, priority: 8),
     ]
 }

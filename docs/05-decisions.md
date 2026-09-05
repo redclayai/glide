@@ -4145,3 +4145,28 @@ text. Both are now closed:
   never called it, evaluating to undefined and surfacing as "the action produced no text". Both were
   invisible to the compiler and to the tests, because nothing asserted that the view rendered the
   section or that the third convention worked.
+
+## ADR-141 — Grouped actions, and a preview before anything is applied
+
+- Date: 2026-09-05
+- Status: accepted
+- Extends ADR-137 and ADR-140.
+- Context: Two problems visible once the catalogue reached 35 actions. A long paragraph makes most of
+  them eligible, and everything past the top few went into a single unlabelled "···" — a list nobody
+  reads. And every `.replaceSelection` result was applied the instant it arrived, so a model rewrite
+  overwrote the user's sentence before they could see what it had done to it.
+- Decision, grouping: an action may name a `group`, and the ranker emits `[ToolbarItem]` — either a
+  standalone action or a named menu. Grouping is *named overflow*, deliberately layered under the
+  ranker rather than replacing it: the top few actions for the current selection still stand alone, so
+  "Open link" on a URL is one click and not filed under a heading. Pinned actions are never grouped —
+  a pin means "put this where I can click it". A test asserts the union of everything reachable equals
+  everything eligible, because the failure mode of a bucketing pass is silently dropping a bucket.
+- Decision, preview: a result bound for `.replaceSelection` is shown with Replace / Copy rather than
+  applied, but **only when the action sends text to a model**. The distinction is certainty, not
+  slowness: `UPPERCASE` has one possible answer and confirming it is friction with nothing on the
+  other side, where a rewrite is a suggestion whose only current escape hatch is undo in whatever app
+  the user happens to be in. Model actions also get a Working/Cancel surface, since the call takes
+  seconds and a spinner with no way out is worse than a wait.
+- Consequences: `.preview` output and model results now share one surface, which is right — both are
+  "here is an answer, decide what to do with it". The immediate-apply path survives for transforms,
+  which is the majority of the catalogue and the part that felt instant.

@@ -33,11 +33,20 @@ public struct ActionRanker: Sendable {
     /// How many actions fit in a callout before it stops being a callout. Five text items plus a
     /// dismiss control is already about as wide as a sentence of body text.
     public var visibleLimit: Int
+    /// How many top-ranked actions stand alone before the rest are collapsed into groups. Small on
+    /// purpose: the point of grouping is that the bar stays scannable, and four standalone buttons
+    /// plus two group menus is already a wide bar.
+    public var singleLimit: Int
     /// Recent-use weight halves over this interval.
     public var recencyHalfLife: TimeInterval
 
-    public init(visibleLimit: Int = 5, recencyHalfLife: TimeInterval = 60 * 60 * 24 * 3) {
+    public init(
+        visibleLimit: Int = 5,
+        singleLimit: Int = 3,
+        recencyHalfLife: TimeInterval = 60 * 60 * 24 * 3
+    ) {
         self.visibleLimit = visibleLimit
+        self.singleLimit = singleLimit
         self.recencyHalfLife = recencyHalfLife
     }
 
@@ -64,16 +73,55 @@ public struct ActionRanker: Sendable {
             }
             .map(\.action)
 
-        // A pinned action is never in the overflow. If the user pinned more than fits, the limit
-        // yields — their explicit choice beats our width budget.
+        // A pinned action always stands alone and is never collapsed into a group or an overflow.
+        // That is what pinning means: the user said "put this where I can click it".
         let pinned = scored.filter { preferences.isPinned($0.id) }
-        let rest = scored.filter { !preferences.isPinned($0.id) }
-        let visibleCount = max(0, visibleLimit - pinned.count)
+        var rest = scored.filter { !preferences.isPinned($0.id) }
 
-        return RankedActions(
-            visible: pinned + rest.prefix(visibleCount),
-            overflow: Array(rest.dropFirst(visibleCount))
-        )
+        // The best few stand alone, whatever group they belong to — a perfect match for the current
+        // selection should not be one click further away because it happens to be filed under
+        // "Writing".
+        let singleBudget = max(0, min(singleLimit, visibleLimit - pinned.count))
+        let singles = Array(rest.prefix(singleBudget))
+        rest = Array(rest.dropFirst(singleBudget))
+
+        var items: [ToolbarItem] = (pinned + singles).map(ToolbarItem.action)
+
+        // Everything still eligible collapses into its named group, in the order the groups' best
+        // members ranked. Ungrouped leftovers stay in the unnamed overflow.
+        var groupOrder: [String] = []
+        var grouped: [String: [SelectionAction]] = [:]
+        var ungrouped: [SelectionAction] = []
+        for action in rest {
+            guard let name = action.group else {
+                ungrouped.append(action)
+                continue
+            }
+            if grouped[name] == nil { groupOrder.append(name) }
+            grouped[name, default: []].append(action)
+        }
+
+        for name in groupOrder {
+            guard items.count < visibleLimit, let members = grouped[name], !members.isEmpty else {
+                // No slot left: the group's members fall back to the unnamed overflow rather than
+                // vanishing.
+                ungrouped.append(contentsOf: grouped[name] ?? [])
+                continue
+            }
+            items.append(.group(ActionGroup(
+                name: name,
+                symbolName: Self.symbol(forGroup: name, members: members),
+                actions: members
+            )))
+        }
+
+        return RankedActions(items: items, overflow: ungrouped)
+    }
+
+    /// A group takes the symbol of its best-ranked member, so the icon means something rather than
+    /// being a second thing to invent and maintain per group name.
+    static func symbol(forGroup name: String, members: [SelectionAction]) -> String {
+        members.first?.symbolName ?? "ellipsis"
     }
 
     /// One discriminator outweighs the whole priority range; the recency term is capped below one
@@ -107,18 +155,62 @@ public struct ActionRanker: Sendable {
     }
 }
 
+/// One slot in the toolbar: either an action the user can click straight away, or a named group that
+/// opens a menu.
+public enum ToolbarItem: Equatable, Sendable {
+    case action(SelectionAction)
+    case group(ActionGroup)
+
+    public var title: String {
+        switch self {
+        case let .action(action): return action.title
+        case let .group(group): return group.name
+        }
+    }
+
+    public var symbolName: String {
+        switch self {
+        case let .action(action): return action.symbolName
+        case let .group(group): return group.symbolName
+        }
+    }
+}
+
+public struct ActionGroup: Equatable, Sendable {
+    public var name: String
+    public var symbolName: String
+    /// In ranked order, so the most relevant member is at the top of the menu.
+    public var actions: [SelectionAction]
+
+    public init(name: String, symbolName: String, actions: [SelectionAction]) {
+        self.name = name
+        self.symbolName = symbolName
+        self.actions = actions
+    }
+}
+
 public struct RankedActions: Equatable, Sendable {
-    /// Goes in the toolbar.
-    public var visible: [SelectionAction]
-    /// Everything else that was eligible, for the overflow menu.
+    /// Goes in the toolbar, in order.
+    public var items: [ToolbarItem]
+    /// Eligible actions that belong to no group and did not earn a slot. The unnamed remainder.
     public var overflow: [SelectionAction]
 
-    public init(visible: [SelectionAction] = [], overflow: [SelectionAction] = []) {
-        self.visible = visible
+    public init(items: [ToolbarItem] = [], overflow: [SelectionAction] = []) {
+        self.items = items
         self.overflow = overflow
     }
 
-    public var isEmpty: Bool { visible.isEmpty && overflow.isEmpty }
+    public var isEmpty: Bool { items.isEmpty && overflow.isEmpty }
+
+    /// Every action reachable from this toolbar, flattened — for tests and for logging.
+    public var allActions: [SelectionAction] {
+        items.flatMap { item -> [SelectionAction] in
+            switch item {
+            case let .action(action): return [action]
+            case let .group(group): return group.actions
+            }
+        } + overflow
+    }
 }
 
 // MARK: - Usage

@@ -36,6 +36,17 @@ public struct SelectionAction: Identifiable, Codable, Equatable, Sendable {
     /// a corrupted built-in is a support problem, where a corrupted custom action is just the user's
     /// own to fix.
     public var isBuiltIn: Bool
+    /// The named group this action collapses into when it is not one of the few shown outright.
+    ///
+    /// Grouping is *named overflow*, not a replacement for ranking. The best-matching actions for the
+    /// current selection still stand alone and stay one click away; everything else is bucketed under
+    /// a heading rather than dumped into a single anonymous "···" list. Which is the actual problem
+    /// worth solving — twenty-odd eligible actions behind one unlabelled button is a list nobody
+    /// reads.
+    ///
+    /// Optional so it can be added without invalidating a stored custom action, and so a user's own
+    /// action defaults to standing alone.
+    public var group: String?
     /// Worked examples for engines that cannot follow an instruction.
     ///
     /// Measured against the shipped on-device model (`Qwen3.5-2B-Base`), a *base* model: asked by
@@ -59,6 +70,7 @@ public struct SelectionAction: Identifiable, Codable, Equatable, Sendable {
         kind: ActionKind,
         output: ActionOutput = .replaceSelection,
         conditions: ActionConditions = .init(),
+        group: String? = nil,
         fewShot: FewShotPrompt? = nil,
         isBuiltIn: Bool = false,
         priority: Int = 0
@@ -69,6 +81,7 @@ public struct SelectionAction: Identifiable, Codable, Equatable, Sendable {
         self.kind = kind
         self.output = output
         self.conditions = conditions
+        self.group = group
         self.fewShot = fewShot
         self.isBuiltIn = isBuiltIn
         self.priority = priority

@@ -67,6 +67,17 @@ final class ActionConditionsTests: XCTestCase {
 
 // MARK: - Ranking
 
+/// Standalone items only — the assertions below were written before grouping and still mean what
+/// they meant: what the user can click without opening a menu.
+extension RankedActions {
+    var singles: [SelectionAction] {
+        items.compactMap { if case let .action(a) = $0 { return a } else { return nil } }
+    }
+    var groups: [ActionGroup] {
+        items.compactMap { if case let .group(g) = $0 { return g } else { return nil } }
+    }
+}
+
 final class ActionRankerTests: XCTestCase {
     private func action(
         _ id: String,
@@ -84,7 +95,7 @@ final class ActionRankerTests: XCTestCase {
         let ranked = ActionRanker().rank([action("a"), action("b")],
                                          for: SelectionContext(text: "hello"),
                                          preferences: preferences)
-        XCTAssertEqual(ranked.visible.map(\.id), ["a"])
+        XCTAssertEqual(ranked.singles.map(\.id), ["a"])
     }
 
     func testActionsWhoseConditionsFailAreExcluded() {
@@ -92,7 +103,7 @@ final class ActionRankerTests: XCTestCase {
         let ranked = ActionRanker().rank([action("always"), linkOnly],
                                          for: SelectionContext(text: "no link here"),
                                          preferences: ActionPreferences())
-        XCTAssertEqual(ranked.visible.map(\.id), ["always"])
+        XCTAssertEqual(ranked.singles.map(\.id), ["always"])
     }
 
     /// The behaviour that makes "Open link" surface on a link without a special case.
@@ -102,7 +113,7 @@ final class ActionRankerTests: XCTestCase {
         let ranked = ActionRanker().rank([general, specific],
                                          for: SelectionContext(text: "https://apple.com"),
                                          preferences: ActionPreferences())
-        XCTAssertEqual(ranked.visible.first?.id, "specific")
+        XCTAssertEqual(ranked.singles.first?.id, "specific")
     }
 
     func testPinnedActionsComeFirstAndAreNeverInOverflow() {
@@ -112,9 +123,9 @@ final class ActionRankerTests: XCTestCase {
         let ranked = ActionRanker(visibleLimit: 3).rank(actions,
                                                         for: SelectionContext(text: "hello there"),
                                                         preferences: preferences)
-        XCTAssertEqual(ranked.visible.first?.id, "z")
+        XCTAssertEqual(ranked.singles.first?.id, "z")
         XCTAssertFalse(ranked.overflow.contains { $0.id == "z" })
-        XCTAssertEqual(ranked.visible.count, 3)
+        XCTAssertEqual(ranked.singles.count, 3)
     }
 
     func testPinningMoreThanFitsWidensRatherThanDropsThem() {
@@ -124,7 +135,7 @@ final class ActionRankerTests: XCTestCase {
         let ranked = ActionRanker(visibleLimit: 2).rank(actions,
                                                         for: SelectionContext(text: "hello"),
                                                         preferences: preferences)
-        XCTAssertEqual(ranked.visible.count, 4, "an explicit pin outranks the width budget")
+        XCTAssertEqual(ranked.singles.count, 4, "an explicit pin outranks the width budget")
         XCTAssertEqual(ranked.overflow.map(\.id), ["other"])
     }
 
@@ -137,7 +148,7 @@ final class ActionRankerTests: XCTestCase {
             preferences: ActionPreferences(),
             usage: usage
         )
-        XCTAssertEqual(ranked.visible.first?.id, "targeted")
+        XCTAssertEqual(ranked.singles.first?.id, "targeted")
     }
 
     func testRecencyDecaysWithAge() {
@@ -155,8 +166,8 @@ final class ActionRankerTests: XCTestCase {
         let actions = [action("b", priority: 5), action("a", priority: 5)]
         let first = ActionRanker().rank(actions, for: SelectionContext(text: "hi"), preferences: .init())
         let second = ActionRanker().rank(actions, for: SelectionContext(text: "hi"), preferences: .init())
-        XCTAssertEqual(first.visible.map(\.id), second.visible.map(\.id))
-        XCTAssertEqual(first.visible.map(\.id), ["a", "b"])
+        XCTAssertEqual(first.singles.map(\.id), second.singles.map(\.id))
+        XCTAssertEqual(first.singles.map(\.id), ["a", "b"])
     }
 }
 
@@ -555,8 +566,8 @@ final class ActionCatalogTests: XCTestCase {
             let ranked = ranker.rank(ActionCatalog.builtIns,
                                      for: SelectionContext(text: text),
                                      preferences: ActionPreferences())
-            XCTAssertLessThanOrEqual(ranked.visible.count, 5, "too many actions for: \(text.prefix(20))")
-            XCTAssertFalse(ranked.visible.isEmpty, "no actions at all for: \(text.prefix(20))")
+            XCTAssertLessThanOrEqual(ranked.singles.count, 5, "too many actions for: \(text.prefix(20))")
+            XCTAssertFalse(ranked.singles.isEmpty, "no actions at all for: \(text.prefix(20))")
         }
     }
 
@@ -566,7 +577,7 @@ final class ActionCatalogTests: XCTestCase {
         let ranked = ActionRanker().rank(ActionCatalog.builtIns,
                                          for: SelectionContext(text: "https://apple.com"),
                                          preferences: ActionPreferences())
-        let offered = Set((ranked.visible + ranked.overflow).map(\.id))
+        let offered = Set(ranked.allActions.map(\.id))
         XCTAssertFalse(offered.contains("builtin.define"))
         XCTAssertFalse(offered.contains("builtin.translate.english"))
     }
@@ -575,21 +586,74 @@ final class ActionCatalogTests: XCTestCase {
         let ranked = ActionRanker().rank(ActionCatalog.builtIns,
                                          for: SelectionContext(text: "https://apple.com"),
                                          preferences: ActionPreferences())
-        XCTAssertTrue(ranked.visible.contains { $0.id == "builtin.open" })
+        XCTAssertTrue(ranked.singles.contains { $0.id == "builtin.open" })
     }
 
     func testASingleWordOffersDefineAndNotSummarize() {
         let ranked = ActionRanker().rank(ActionCatalog.builtIns,
                                          for: SelectionContext(text: "cromulent"),
                                          preferences: ActionPreferences())
-        XCTAssertTrue(ranked.visible.contains { $0.id == "builtin.define" })
-        XCTAssertFalse(ranked.visible.contains { $0.id == "builtin.summarize" })
+        XCTAssertTrue(ranked.singles.contains { $0.id == "builtin.define" })
+        XCTAssertFalse(ranked.singles.contains { $0.id == "builtin.summarize" })
     }
 
+    /// Reachable, not necessarily standalone: Summarize belongs to the AI group, and whether it earns
+    /// its own button or sits one click inside "AI" is the ranker's call.
     func testAParagraphOffersSummarize() {
         let ranked = ActionRanker().rank(ActionCatalog.builtIns,
                                          for: SelectionContext(text: String(repeating: "word ", count: 60)),
                                          preferences: ActionPreferences())
-        XCTAssertTrue(ranked.visible.contains { $0.id == "builtin.summarize" })
+        XCTAssertTrue(ranked.allActions.contains { $0.id == "builtin.summarize" })
+    }
+
+    // MARK: - Grouping
+
+    /// The bar stays short however many actions are eligible — that is the whole point of grouping.
+    func testTheToolbarNeverExceedsItsSlotBudget() {
+        let ranker = ActionRanker()
+        for text in ["hello", "https://apple.com", "danny@example.com",
+                     String(repeating: "word ", count: 60), "a\nb\nc\nd", "cromulent"] {
+            let ranked = ranker.rank(ActionCatalog.builtIns,
+                                     for: SelectionContext(text: text),
+                                     preferences: ActionPreferences())
+            XCTAssertLessThanOrEqual(ranked.items.count, 5, "too many slots for: \(text.prefix(20))")
+        }
+    }
+
+    /// A perfect match is not filed away. "Open link" belongs to no group and outranks everything on
+    /// a URL, so it stays one click away.
+    func testTheBestMatchStaysStandalone() {
+        let ranked = ActionRanker().rank(ActionCatalog.builtIns,
+                                         for: SelectionContext(text: "https://apple.com"),
+                                         preferences: ActionPreferences())
+        XCTAssertEqual(ranked.singles.first?.id, "builtin.open")
+    }
+
+    func testLowerRankedActionsCollapseIntoNamedGroups() {
+        let ranked = ActionRanker().rank(ActionCatalog.builtIns,
+                                         for: SelectionContext(text: String(repeating: "word ", count: 60)),
+                                         preferences: ActionPreferences())
+        XCTAssertFalse(ranked.groups.isEmpty, "a long paragraph has far more eligible actions than slots")
+        XCTAssertTrue(ranked.groups.allSatisfy { !$0.actions.isEmpty })
+    }
+
+    /// Nothing eligible may be dropped on the floor by grouping.
+    func testGroupingLosesNothing() {
+        let context = SelectionContext(text: String(repeating: "word ", count: 60))
+        let preferences = ActionPreferences()
+        let ranked = ActionRanker().rank(ActionCatalog.builtIns, for: context, preferences: preferences)
+        let eligible = ActionCatalog.builtIns.filter { $0.conditions.matches(context) }
+        XCTAssertEqual(Set(ranked.allActions.map(\.id)), Set(eligible.map(\.id)))
+    }
+
+    /// A pin means "put this where I can click it", so it is never collapsed into a group.
+    func testPinnedActionsAreNeverGrouped() {
+        var preferences = ActionPreferences()
+        preferences.setPinned(true, for: "builtin.slugify")   // otherwise a low-ranked "Text" member
+        let ranked = ActionRanker().rank(ActionCatalog.builtIns,
+                                         for: SelectionContext(text: "Some Heading Here"),
+                                         preferences: preferences)
+        XCTAssertEqual(ranked.singles.first?.id, "builtin.slugify")
+        XCTAssertFalse(ranked.groups.contains { $0.actions.contains { $0.id == "builtin.slugify" } })
     }
 }
