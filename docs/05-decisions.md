@@ -4232,3 +4232,32 @@ text. Both are now closed:
   revert the SwiftUI experiment failed with "pathspec did not match any file". Anchored to `/Models/`.
   The lesson: an ignore rule written for build output should always be anchored, and "the repo
   builds" needs checking from a clone, not from the machine that wrote it.
+
+## ADR-144 — A floating panel is pinned once shown
+
+- Date: 2026-09-05
+- Status: accepted
+- Supersedes the fix in ADR-142, which addressed one of three causes.
+- Context: "The menu's still jumping around", after ADR-142 claimed to have fixed it. The logs showed
+  why the earlier fix was insufficient. Whitespace normalisation only covered reads that differed by a
+  trailing newline; the actual traffic alternates between genuinely different *text* — a selection
+  reading 6 characters, then 36, then 6, several times a second. And the anchor is usually a 1pt-wide
+  caret rect that drifts tens of points on mouse movement alone, so even a stable selection re-placed
+  the panel. The panel also changes width when its contents rebuild, and it is centred on the anchor,
+  so a rebuild moved it even when the anchor held.
+- Decision: three rules, in order of how much they matter.
+  1. A visible panel does not move. Contents are rebuilt in place; the frame is only recomputed when
+     the anchor has moved more than 220pt, which means the user selected something somewhere else
+     rather than the caret drifting inside the same sentence.
+  2. A changed selection must be seen twice before a visible panel acts on it.
+  3. Rule 2 applies **only while visible**. Applied to the first presentation, an app that alternates
+     forever would never satisfy it and the toolbar would never appear — turning a jittery panel into
+     an absent one, which is strictly worse. This was caught by reading the guard back rather than by
+     testing, and is the kind of regression a fix for flicker naturally invites.
+- Verified: ten seconds of continuous pointer movement over and around the panel produces no
+  re-presentation at all, where before it re-anchored several times a second. Not verified against the
+  6/36 flicker directly, because that behaviour belongs to a specific app and does not reproduce on
+  demand — the fix targets the mechanism the logs show, not a reproduction.
+- Method note: the first attempt to test this drove the pointer with a *click* tool, so every "nudge"
+  ran an action and dismissed the panel, and the resulting log looked exactly like the bug. Moving the
+  mouse and clicking the mouse are different tests.

@@ -764,6 +764,16 @@ final class SelectionRewriteController {
 
     private let minSelectionLength = 3
 
+    /// A changed selection seen once, waiting to be seen again before the panel acts on it.
+    private var pendingKey: String?
+    /// The anchor the visible panel was placed against, so a new one can be judged near or far.
+    private var presentedAnchor: CGRect?
+    /// How far the anchor must move before a visible panel is allowed to follow it. Below this the
+    /// contents are rebuilt in place: an anchor that shifts by a few points is the caret drifting
+    /// inside the same sentence, and chasing it is exactly what makes the toolbar feel unstable.
+    /// Above it, the user has selected something somewhere else and the panel should go there.
+    private static let anchorFollowThreshold: CGFloat = 220
+
     /// Identity of a selection for "is this still the same thing?" purposes. Whitespace-insensitive,
     /// because that is exactly what differs between two reads of an unchanged selection.
     static func selectionKey(_ text: String) -> String {
@@ -1077,13 +1087,37 @@ final class SelectionRewriteController {
         // selection with and without a trailing newline between one read and the next, so an exact
         // comparison saw a *change* every few hundred milliseconds and re-anchored the panel — which
         // is what "it keeps moving around while I'm interacting" is.
-        if Self.selectionKey(selected) == shownSelection.map(Self.selectionKey) { return }
+        let key = Self.selectionKey(selected)
+        if key == shownSelection.map(Self.selectionKey) {
+            pendingKey = nil
+            return
+        }
 
         // A visible panel does not move under the pointer. Even a genuine selection change should not
         // reposition a toolbar the user is currently reaching for; the system's own selection callout
         // stays put until it is dismissed. The panel is left exactly as it is and the poll tries again
         // once the pointer leaves.
         if popover.isVisible, popover.isPointerInside || popover.isMenuOpen { return }
+
+        // A *changed* selection has to hold for two consecutive polls before a visible panel acts on
+        // it.
+        //
+        // Whitespace normalisation was not enough. Apps report genuinely different *text* between
+        // reads — measured, the same selection alternating between 6 and 36 characters several times
+        // a second as the read resolves against different elements. Each flip was a real change by any
+        // string comparison, so the panel rebuilt and re-anchored on every one. Requiring the new
+        // value to repeat costs one poll of latency and removes the entire class of flicker.
+        //
+        // Only while visible, deliberately. Applied to the first presentation as well, an app that
+        // alternates forever would never satisfy the check and the toolbar would simply never appear —
+        // trading a panel that jitters for one that does not exist, which is the worse of the two.
+        if popover.isVisible {
+            guard pendingKey == key else {
+                pendingKey = key
+                return
+            }
+        }
+        pendingKey = nil
 
         // Anchor: tracker caret/field rect, else the raw selection/element rect. Some apps
         // (Electron/web) return a degenerate zero-size rect — fall back to the mouse location so
@@ -1124,6 +1158,18 @@ final class SelectionRewriteController {
         }
         pendingContext = actionContext
         popover.setActions(ranked)
+
+        // Rebuild in place unless the selection actually moved somewhere else. The anchor Accessibility
+        // hands back for a selection is frequently a 1pt-wide *caret* rect, and it wanders by tens of
+        // points while the user does nothing but move the mouse — so following it faithfully is what
+        // "the menu keeps jumping around" is.
+        if popover.isVisible,
+           let previous = presentedAnchor,
+           hypot(rect.midX - previous.midX, rect.midY - previous.midY) < Self.anchorFollowThreshold {
+            RewriteLog.write("poll: contents updated in place, anchor unchanged")
+            return
+        }
+        presentedAnchor = rect
         popover.present(aboveScreenRect: rect)
     }
 
@@ -1135,6 +1181,8 @@ final class SelectionRewriteController {
         glideFocusPolls = 0
         pendingText = nil
         pendingContext = nil
+        pendingKey = nil
+        presentedAnchor = nil
         replacesByPasting = false
         popover.orderOut(nil)
     }
