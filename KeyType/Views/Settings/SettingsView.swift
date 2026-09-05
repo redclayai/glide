@@ -13,6 +13,9 @@ import SwiftUI
 
 struct SettingsView: View {
     let settings: SettingsStore
+    /// Shared with `SelectionRewriteController` rather than constructed here, so an edit in this pane
+    /// is reflected by the next selection instead of the next launch.
+    @ObservedObject var actionsModel: ActionsSettingsModel
     let telemetry: CompletionTelemetryStore
     let modelSetup: ModelSetupCoordinator
     let contextCapture: ContextCaptureController
@@ -62,6 +65,8 @@ struct SettingsView: View {
                 reloadModel: reloadModel,
                 importModel: importModel
             )
+        case .actions:
+            ActionsSettingsView(model: actionsModel)
         case .shortcuts:
             ShortcutsSettingsView(settings: settings)
         case .privacy:
@@ -94,6 +99,7 @@ struct SettingsView: View {
 enum SettingsCategory: String, CaseIterable, Identifiable {
     case general
     case model
+    case actions
     case shortcuts
     case privacy
     case apps
@@ -107,6 +113,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         switch self {
         case .general: return "General"
         case .model: return "Model"
+        case .actions: return "Actions"
         case .shortcuts: return "Shortcuts"
         case .privacy: return "Privacy"
         case .apps: return "Apps"
@@ -120,6 +127,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         switch self {
         case .general: return "gearshape.fill"
         case .model: return "cpu.fill"
+        case .actions: return "bolt.fill"
         case .shortcuts: return "command"
         case .privacy: return "lock.shield.fill"
         case .apps: return "square.grid.2x2.fill"
@@ -133,6 +141,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         switch self {
         case .general: return .gray
         case .model: return .purple
+        case .actions: return .yellow
         case .shortcuts: return .indigo
         case .privacy: return .green
         case .apps: return .orange

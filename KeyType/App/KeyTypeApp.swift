@@ -51,6 +51,7 @@ struct KeyTypeApp: App {
         Window("Glide Settings", id: AppDelegate.settingsWindowID) {
             SettingsView(
                 settings: appDelegate.settings,
+                actionsModel: appDelegate.actionsSettings,
                 telemetry: appDelegate.telemetry,
                 modelSetup: appDelegate.modelSetup,
                 contextCapture: appDelegate.contextCapture,

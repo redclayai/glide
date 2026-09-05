@@ -11,6 +11,7 @@ import MacContextCapture
 import ModelRuntime
 import Personalization
 import Proofreading
+import SelectionActions
 import TextInsertion
 import SwiftUI
 import UniformTypeIdentifiers
@@ -48,6 +49,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// "Polish" / "Grammar" selection actions — a popover over selected text that rewrites it with
     /// the local model. Isolated from the completion pipeline (its own runtime). See SelectionRewrite.
     let selectionRewrite: SelectionRewriteController
+    /// Backs the Actions settings pane. Holds the same `ActionStore` the controller reads.
+    let actionsSettings: ActionsSettingsModel
     /// Spelling/grammar rewrite of the word just typed, offered as a capsule under the caret and
     /// applied with Tab. Isolated from the completion pipeline; see ProofreadController.
     let proofread: ProofreadController
@@ -159,12 +162,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        let actionStore = ActionStore()
         self.selectionRewrite = SelectionRewriteController(
             tracker: tracker,
             service: rewriteService,
             modelFilenameProvider: modelFilename,
             isEnabledProvider: { settings.selectionActionsEnabled },
+            allowsCodeExecution: { settings.allowsActionCodeExecution },
+            actionStore: actionStore,
             rewriteText: selectionRewriter
+        )
+        self.actionsSettings = ActionsSettingsModel(
+            store: actionStore,
+            settings: settings,
+            // The Try-it button runs the same runner the toolbar does. A test button that takes a
+            // different path is worse than no test button.
+            makeRunner: { allowsCode in
+                ActionRunner(
+                    policy: ExecutionPolicy(allowsCodeExecution: allowsCode),
+                    model: { instruction, fewShot, text in
+                        let spec = RewriteInstruction(
+                            instruction: instruction,
+                            fewShotHeader: fewShot?.header,
+                            examples: (fewShot?.examples ?? []).map {
+                                RewriteExample(original: $0.original, rewritten: $0.rewritten)
+                            }
+                        )
+                        switch await selectionRewriter(text, .custom(spec)) {
+                        case let .success(result): return result
+                        case let .failure(error): throw error
+                        }
+                    }
+                )
+            }
         )
         self.proofread = ProofreadController(
             tracker: tracker,

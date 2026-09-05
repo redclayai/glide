@@ -51,6 +51,8 @@
 		4B5450012FC9600000000091 /* OnboardingAndKeybindTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B5450012FC9600000000090 /* OnboardingAndKeybindTests.swift */; };
 		4B5450012FC96000000000A0 /* GeneralSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B5450012FC96000000000A1 /* GeneralSettingsView.swift */; };
 		4B54500A2FC9600000000E02 /* GrammarBackendSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B54500A2FC9600000000E01 /* GrammarBackendSettingsView.swift */; };
+		4B54500A2FC96000000009C2 /* ActionsSettingsModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B54500A2FC96000000009C1 /* ActionsSettingsModel.swift */; };
+		4B54500A2FC96000000009B2 /* ActionsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B54500A2FC96000000009B1 /* ActionsSettingsView.swift */; };
 		4B5450012FC96000000000A2 /* ModelSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B5450012FC96000000000A3 /* ModelSettingsView.swift */; };
 		4B5450012FC96000000000A4 /* ShortcutsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B5450012FC96000000000A5 /* ShortcutsSettingsView.swift */; };
 		4B5450012FC96000000000A6 /* PrivacySettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B5450012FC96000000000A7 /* PrivacySettingsView.swift */; };
@@ -129,6 +131,8 @@
 		4B5450012FC9600000000090 /* OnboardingAndKeybindTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingAndKeybindTests.swift; sourceTree = "<group>"; };
 		4B5450012FC96000000000A1 /* GeneralSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneralSettingsView.swift; sourceTree = "<group>"; };
 		4B54500A2FC9600000000E01 /* GrammarBackendSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GrammarBackendSettingsView.swift; sourceTree = "<group>"; };
+		4B54500A2FC96000000009C1 /* ActionsSettingsModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionsSettingsModel.swift; sourceTree = "<group>"; };
+		4B54500A2FC96000000009B1 /* ActionsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionsSettingsView.swift; sourceTree = "<group>"; };
 		4B5450012FC96000000000A3 /* ModelSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelSettingsView.swift; sourceTree = "<group>"; };
 		4B5450012FC96000000000A5 /* ShortcutsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutsSettingsView.swift; sourceTree = "<group>"; };
 		4B5450012FC96000000000A7 /* PrivacySettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacySettingsView.swift; sourceTree = "<group>"; };
@@ -362,6 +366,7 @@
 			isa = PBXGroup;
 			children = (
 				4B5450012FC9600000000063 /* SettingsStore.swift */,
+				4B54500A2FC96000000009C1 /* ActionsSettingsModel.swift */,
 			);
 			path = Settings;
 			sourceTree = "<group>";
@@ -408,6 +413,7 @@
 			children = (
 				4B5450012FC96000000000A1 /* GeneralSettingsView.swift */,
 				4B54500A2FC9600000000E01 /* GrammarBackendSettingsView.swift */,
+				4B54500A2FC96000000009B1 /* ActionsSettingsView.swift */,
 				4B5450012FC96000000000A3 /* ModelSettingsView.swift */,
 				4B5450012FC96000000000A5 /* ShortcutsSettingsView.swift */,
 				4B5450012FC96000000000A7 /* PrivacySettingsView.swift */,
@@ -681,6 +687,8 @@
 				4B5450012FC9600000000068 /* SettingsView.swift in Sources */,
 				4B5450012FC96000000000A0 /* GeneralSettingsView.swift in Sources */,
 				4B54500A2FC9600000000E02 /* GrammarBackendSettingsView.swift in Sources */,
+				4B54500A2FC96000000009C2 /* ActionsSettingsModel.swift in Sources */,
+				4B54500A2FC96000000009B2 /* ActionsSettingsView.swift in Sources */,
 				4B5450012FC96000000000A2 /* ModelSettingsView.swift in Sources */,
 				4B5450012FC96000000000A4 /* ShortcutsSettingsView.swift in Sources */,
 				4B5450012FC96000000000A6 /* PrivacySettingsView.swift in Sources */,
@@ -869,7 +877,7 @@
 				CODE_SIGN_ENTITLEMENTS = KeyType/KeyType.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 31;
+				CURRENT_PROJECT_VERSION = 32;
 				DEVELOPMENT_TEAM = 3RPG92BQ9C;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -882,7 +890,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.31;
+				MARKETING_VERSION = 0.32;
 				PRODUCT_BUNDLE_IDENTIFIER = app.glide;
 				PRODUCT_NAME = Glide;
 				REGISTER_APP_GROUPS = YES;
@@ -903,7 +911,7 @@
 				CODE_SIGN_ENTITLEMENTS = KeyType/KeyType.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 31;
+				CURRENT_PROJECT_VERSION = 32;
 				DEVELOPMENT_TEAM = 3RPG92BQ9C;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -916,7 +924,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.31;
+				MARKETING_VERSION = 0.32;
 				PRODUCT_BUNDLE_IDENTIFIER = app.glide;
 				PRODUCT_NAME = Glide;
 				REGISTER_APP_GROUPS = YES;
@@ -934,7 +942,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 31;
+				CURRENT_PROJECT_VERSION = 32;
 				DEVELOPMENT_TEAM = 3RPG92BQ9C;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.4;
@@ -955,7 +963,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 31;
+				CURRENT_PROJECT_VERSION = 32;
 				DEVELOPMENT_TEAM = 3RPG92BQ9C;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.4;
@@ -975,7 +983,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 31;
+				CURRENT_PROJECT_VERSION = 32;
 				DEVELOPMENT_TEAM = 3RPG92BQ9C;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
@@ -994,7 +1002,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 31;
+				CURRENT_PROJECT_VERSION = 32;
 				DEVELOPMENT_TEAM = 3RPG92BQ9C;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;

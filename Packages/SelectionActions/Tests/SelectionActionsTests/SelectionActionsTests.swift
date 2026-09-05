@@ -362,6 +362,50 @@ final class ActionRunnerTests: XCTestCase {
         }
     }
 
+    // MARK: - Shell placeholder quoting
+
+    /// The selection is not trusted input. The user wrote the command; they did not write the text
+    /// they happened to select.
+    func testShellPlaceholderIsSingleQuoted() {
+        XCTAssertEqual(
+            ProcessActionRunner.substitutingShellPlaceholder(in: "echo {{text}}", with: "hello world"),
+            "echo 'hello world'"
+        )
+    }
+
+    func testShellPlaceholderNeutralisesQuoteBreakout() {
+        let malicious = "'; rm -rf ~ #"
+        let command = ProcessActionRunner.substitutingShellPlaceholder(in: "echo {{text}}", with: malicious)
+        // The leading quote is closed, a literal quote is emitted backslash-escaped, and quoting
+        // resumes — so the rest of the payload never reaches the shell as syntax.
+        XCTAssertEqual(command, #"echo ''\''; rm -rf ~ #'"#)
+        XCTAssertFalse(command.hasSuffix("#"), "the payload must stay inside the quotes")
+    }
+
+    func testShellPlaceholderNeutralisesExpansionAndSubstitution() {
+        for payload in ["$HOME", "`whoami`", "$(whoami)", "a && b", "x | y", "* ?"] {
+            let command = ProcessActionRunner.substitutingShellPlaceholder(in: "echo {{text}}", with: payload)
+            XCTAssertEqual(command, "echo '\(payload)'", "unsafe for \(payload)")
+        }
+    }
+
+    func testCommandWithoutAPlaceholderIsUntouched() {
+        XCTAssertEqual(
+            ProcessActionRunner.substitutingShellPlaceholder(in: "wc -w", with: "anything at all"),
+            "wc -w"
+        )
+    }
+
+    /// End to end, with the quoting actually exercised by /bin/sh.
+    func testShellPlaceholderSurvivesRealExecution() async throws {
+        let runner = ActionRunner(policy: ExecutionPolicy(allowsCodeExecution: true))
+        // Bracketed so the result differs from the input — an identity command would trip the
+        // unchanged-result guard before the assertion could say anything useful.
+        let action = SelectionAction(id: "t", title: "t", kind: .shell("printf '[%s]' {{text}}"))
+        let result = try await runner.run(action, on: SelectionContext(text: "it's $HOME `now`"))
+        XCTAssertEqual(result.text, "[it's $HOME `now`]", "the payload arrived verbatim and unexpanded")
+    }
+
     func testSideEffectClassification() {
         XCTAssertEqual(action(.transform(.uppercase)).sideEffects, .none)
         XCTAssertEqual(action(.javaScript("text")).sideEffects, .none)

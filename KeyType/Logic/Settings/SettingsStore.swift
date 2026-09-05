@@ -114,6 +114,7 @@ final class SettingsStore {
         static let proofreadEnabled = "Glide.settings.proofreadEnabled"
         static let aiGrammarEnabled = "Glide.settings.aiGrammarEnabled"
         static let grammarBackend = "Glide.settings.grammarBackend"
+        static let allowsActionCodeExecution = "Glide.settings.allowsActionCodeExecution"
         static let logsCapturedText = "Glide.settings.logsCapturedText"
         static let grammarModel = "Glide.settings.grammarModel"
         static let completionLength = "KeyType.settings.completionLength"
@@ -193,6 +194,17 @@ final class SettingsStore {
         }
     }
 
+    /// Whether shell and AppleScript actions may run.
+    ///
+    /// Off by default and stays that way until the user turns it on, having read the sentence next to
+    /// the switch. These actions run arbitrary code with the user's own permissions; the reason they
+    /// are offered at all is that the user writes them themselves, and the reason they are still
+    /// gated is that "the user wrote it" is a weaker guarantee the moment anyone can paste a command
+    /// they found somewhere.
+    var allowsActionCodeExecution: Bool {
+        didSet { defaults.set(allowsActionCodeExecution, forKey: Key.allowsActionCodeExecution) }
+    }
+
     /// Editable, because provider model names change more often than this app ships.
     var grammarModel: String {
         didSet { defaults.set(grammarModel, forKey: Key.grammarModel) }
@@ -247,6 +259,7 @@ final class SettingsStore {
         let backend = (defaults.string(forKey: Key.grammarBackend))
             .flatMap(RewriteBackend.init(rawValue:)) ?? .local
         self.grammarBackend = backend
+        self.allowsActionCodeExecution = defaults.object(forKey: Key.allowsActionCodeExecution) as? Bool ?? false
         self.grammarModel = defaults.string(forKey: Key.grammarModel) ?? backend.defaultModel
         self.completionLength = (defaults.string(forKey: Key.completionLength))
             .flatMap(CompletionLength.init(rawValue:)) ?? .medium

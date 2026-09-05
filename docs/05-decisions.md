@@ -4082,3 +4082,38 @@ text. Both are now closed:
   change suggested" instead of appearing dead. The general rule for this repo: a prompt action added
   to the catalogue must be run against the *local* engine before shipping, because the cloud engines
   will make almost any prompt look fine.
+
+## ADR-139 — Custom actions, and where the trust boundary sits
+
+- Date: 2026-09-05
+- Status: accepted
+- Completes the authoring half of ADR-137.
+- Context: The engine had six action kinds from the start; only the built-in catalogue used them.
+  Custom actions are the reason a power user wants a selection toolbar at all, and two of the kinds
+  — shell and AppleScript — execute arbitrary code.
+- Decision: A Settings pane with two halves. The list is *arrangement* (enable, pin, reorder) and
+  works identically on built-in and custom actions, because they are one type. The editor is
+  *authorship* and exists only for custom ones: a built-in can be turned off but never rewritten,
+  since a corrupted built-in is a support problem where a corrupted custom action is the user's own
+  to fix. Edits write through immediately — a Save button in a settings window is an invitation to
+  close the window and lose the work, and the store already persists atomically per mutation.
+- On trust, three separate decisions:
+  1. Code execution is **off by default**, behind a switch with a sentence explaining it. The policy
+     is read at *execution* time — the runner is constructed per run rather than stored — so turning
+     it on takes effect on the next click rather than the next launch. It was stored once at init
+     first, which would have been a switch that appeared to work and did not.
+  2. Text substituted into a shell command is single-quoted with `'` escaped as `'\''`. The
+     distinction that matters: the user wrote the *command*, but they did not write the *text they
+     happened to select* — that arrives from whatever app they were reading. A selection of
+     `'; rm -rf ~ #` would otherwise close the quoting and run. Tested adversarially, including end
+     to end through `/bin/sh`.
+  3. Every action displays what it can do beyond changing text, and the ones that run code are marked
+     in the list. Classification is derived from the kind, not asserted per action, so a new kind
+     cannot be added without deciding where it sits.
+- Consequences: The Try-it button runs the real runner rather than a simulation, which is why
+  `makeRunner` is injected into the settings model rather than the model building its own — a test
+  button that takes a different path from the real one is worse than no test button.
+- Note: verified the list and arrangement UI on screen; the editor was verified by compiling and by
+  the model's tests, not visually, after a coordinate-based click crossed onto another display and
+  opened System Settings instead. Worth saying plainly rather than implying a screenshot I do not
+  have.

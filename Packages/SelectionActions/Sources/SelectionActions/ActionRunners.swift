@@ -276,12 +276,29 @@ public enum URLActionRunner {
 
 enum ProcessActionRunner {
     static func shell(_ command: String, input: String, timeout: TimeInterval) throws -> String {
+        // The selection is available two ways, because commands want it two ways: on **stdin**, so
+        // `wc -w` and `tr` work with no ceremony, and as `{{text}}`, so it can be an argument —
+        // `printf '%s' {{text}} | wc -w`, `open -a Preview {{text}}`.
         try run(
             executable: URL(fileURLWithPath: "/bin/sh"),
-            arguments: ["-c", command],
+            arguments: ["-c", substitutingShellPlaceholder(in: command, with: input)],
             input: input,
             timeout: timeout
         )
+    }
+
+    /// Substitutes the selection into a shell command as a **single-quoted literal**.
+    ///
+    /// Single quotes are the only POSIX quoting that suppresses everything — no expansion, no command
+    /// substitution, no escapes — which leaves exactly one character to handle: the single quote
+    /// itself, closed and re-opened around a backslash-escaped one. Without this, a selection
+    /// containing `'; rm -rf ~ #` would end the user's quoting and run as a command. The user wrote
+    /// the *command*, but they did not write the *text they happened to select*, and the text is what
+    /// arrives here from whatever app they were reading.
+    static func substitutingShellPlaceholder(in command: String, with text: String) -> String {
+        guard command.contains("{{text}}") else { return command }
+        let quoted = "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        return command.replacingOccurrences(of: "{{text}}", with: quoted)
     }
 
     static func appleScript(_ source: String, input: String, timeout: TimeInterval) throws -> String {
