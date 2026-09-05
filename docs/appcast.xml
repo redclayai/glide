@@ -14,7 +14,7 @@
             <sparkle:version>34</sparkle:version>
             <sparkle:shortVersionString>0.34</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/redclayai/glide/releases/download/v0.34/Glide-0.34.dmg" length="13549016" type="application/octet-stream" sparkle:edSignature="KwNNnGsf5b3NKdF/3P2hCHlyE8HrXJeBXOnBDVscH4s3E7ggQ5CptSAghHVMamGa8j6eTgRfDyvwzD6/p2k7Cw=="/>
+            <enclosure url="https://github.com/redclayai/glide/releases/download/v0.34/Glide-0.34.dmg" length="13553569" type="application/octet-stream" sparkle:edSignature="Z5ah+kVwEgZcnyKH4UuADc2bNve9lcBf1kmcVEsirgVHPYUWZly0FWXum6maFkUDPcc6KwYzwekl5/T7aETvCQ=="/>
         </item>
         <item>
             <title>0.33</title>
