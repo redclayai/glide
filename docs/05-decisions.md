@@ -4261,3 +4261,24 @@ text. Both are now closed:
 - Method note: the first attempt to test this drove the pointer with a *click* tool, so every "nudge"
   ran an action and dismissed the panel, and the resulting log looked exactly like the bug. Moving the
   mouse and clicking the mouse are different tests.
+
+## ADR-145 — A pointer-anchored panel is anchored once
+
+- Date: 2026-09-05
+- Status: accepted
+- Completes ADR-144, which pinned the panel against *selection* drift and left the pointer path open.
+- Context: "It only moves down when I click into the down chevrons." The qualifier was the whole
+  diagnosis. ADR-144 stopped a visible panel following its selection anchor, but where an app exposes
+  no usable rect the anchor is `mouseRectQuartz()` — the pointer — and that path had no such rule.
+  Reaching into one of the panel's own dropdowns moves the pointer downward by exactly the height of
+  a menu row, the next poll re-anchors to it, and the panel walks down the screen a step at a time.
+  Nothing else moved it, which is why the report was so precisely scoped.
+- Decision: the pointer is an anchor for the *first* placement only. A visible panel whose anchor
+  would come from the pointer keeps its position and only rebuilds its contents. The general shape of
+  the rule, now stated three times across three ADRs: a floating control is placed once and then
+  belongs to the user, whatever the model underneath it later believes.
+- Also fixed here: the dropdown was popped at `NSPoint(x: 0, y: bounds.height + 4)`, which in an
+  unflipped view is *above* the button's top edge — the menu opened over the toolbar rather than under
+  the item it belongs to.
+- Verified: a chevron click followed by ten downward pointer moves produces one presentation and no
+  further movement.

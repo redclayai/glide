@@ -538,7 +538,9 @@ final class SelectionRewritePopover: NSPanel {
 
         isMenuOpen = true
         defer { isMenuOpen = false }   // popUp is modal and does not return until the menu closes
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height + 4), in: sender)
+        // `bounds.height + 4` is *above* the button's top edge in an unflipped view, so the menu
+        // opened over the toolbar rather than under the button it belongs to. A dropdown drops.
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: -4), in: sender)
     }
 
     @objc private func menuItemSelected(_ sender: NSMenuItem) {
@@ -1130,6 +1132,9 @@ final class SelectionRewriteController {
             ?? snap?.caretRect
             ?? snap?.context.geometry.fieldRect
             ?? rawEl.flatMap { AX.frame($0) }
+        // Whether the anchor is about to come from the pointer rather than from the text. It matters
+        // downstream: a pointer-derived anchor must never move a panel that is already on screen.
+        let usesPointerFallback = !(candidate.map { $0.width > 1 && $0.height > 1 } ?? false)
         let rect: CGRect
         if let candidate, candidate.width > 1, candidate.height > 1 {
             rect = candidate
@@ -1158,6 +1163,19 @@ final class SelectionRewriteController {
         }
         pendingContext = actionContext
         popover.setActions(ranked)
+
+        // A visible panel never follows the pointer.
+        //
+        // Where the app exposes no usable rect, the anchor falls back to the mouse — right for the
+        // *first* placement, since the pointer is where the user just finished dragging out their
+        // selection. Wrong for every placement after that, and specifically wrong when the user
+        // reaches into one of the panel's own dropdowns: the pointer travels downward into the menu,
+        // the next poll re-anchors to it, and the panel walks down the screen. That is what "it only
+        // moves down when I click into the down chevrons" is.
+        if popover.isVisible, usesPointerFallback {
+            RewriteLog.write("poll: contents updated in place, pointer-anchored panel stays put")
+            return
+        }
 
         // Rebuild in place unless the selection actually moved somewhere else. The anchor Accessibility
         // hands back for a selection is frequently a 1pt-wide *caret* rect, and it wanders by tens of
