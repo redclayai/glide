@@ -36,8 +36,14 @@ secrets.json
 Packages/ModelRuntime/Vendor/
 
 # Model weights (stay in ~/Library/Application Support/KeyType/Models, never in the repo)
+#
+# `Models/` was unanchored, so it matched *any* directory of that name at any depth — including
+# `KeyType/Logic/Models/`, which is source. Two files lived outside version control for months as a
+# result, one of them the entire selection-toolbar implementation: the repo did not build from a
+# clean clone and nobody noticed, because everyone building it already had the files. Anchored and
+# narrowed to the one directory that ever held weights.
 *.gguf
-Models/
+/Models/
 
 # Completion benchmark local/private data and generated reports
 KeyTypeBench-20260603/Private/

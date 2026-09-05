@@ -4199,3 +4199,36 @@ text. Both are now closed:
   is now whitespace-insensitive, and a visible panel never repositions while the pointer is over it
   or one of its menus is open. The general rule: a floating control the user is reaching for does not
   move, whatever the model underneath it thinks changed.
+
+## ADR-143 — The selection toolbar stays AppKit, and two files were never in the repo
+
+- Date: 2026-09-05
+- Status: accepted
+- Context: A request to refactor the floating toolbar into idiomatic SwiftUI for macOS 14+ — native
+  materials, `Menu` for dropdowns, system chevrons, no hand-drawn dividers. Four of the five rules
+  were straightforward. The fifth, replacing the click handling with SwiftUI, ran into the thing
+  ADR-119 already documented.
+- Decision: the visual rules are adopted in **AppKit**. The conversion was built, shipped to a local
+  build, and measured: SwiftUI `Button`s hosted in this panel did not respond to clicks, and a SwiftUI
+  `Menu` never opened at all. `acceptsFirstMouse` cannot rescue it — AppKit asks the *hit-tested*
+  view, which for a hosted SwiftUI tree is SwiftUI's own internal view, never the `NSHostingView`
+  subclass that overrides it. Making the panel key does deliver the clicks and is also unusable: it
+  takes focus from the document, and Accessibility then reports no selection — the toolbar loses the
+  very thing it exists to act on.
+- Honesty about the evidence: the coordinate-clicking harness used to test this had *the same
+  coordinate-flip bug* being fixed in the app, so several early "the button did not fire" results
+  were the click landing elsewhere. After fixing the harness the SwiftUI buttons still did not fire,
+  and one ambiguous log line suggests one may have fired once. The AppKit control fires immediately
+  and every time, which is the standard this panel is held to.
+- Also fixed, and the more consequential of the two: the panel was placed off-screen for any app on a
+  display above the primary. The Quartz→AppKit flip must be about the primary display's top edge; it
+  was using the found screen's `maxY`, which agrees only when that screen *is* the primary.
+- **And the finding that outranks all of it:** `SelectionRewrite.swift` is not in git, and never has
+  been. `.gitignore` line 40 was `Models/` — for GGUF weights — but an unanchored directory pattern
+  matches at any depth, so it also swallowed `KeyType/Logic/Models/`, a source directory. The file
+  containing the entire selection toolbar, plus `ModelSetupCoordinator.swift`, were excluded from
+  version control. Every commit in this repo that claimed to change the toolbar changed nothing that
+  git could see, and a clean clone has never built. It surfaced only because a `git checkout` to
+  revert the SwiftUI experiment failed with "pathspec did not match any file". Anchored to `/Models/`.
+  The lesson: an ignore rule written for build output should always be anchored, and "the repo
+  builds" needs checking from a clone, not from the machine that wrote it.

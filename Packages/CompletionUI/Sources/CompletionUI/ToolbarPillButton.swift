@@ -21,6 +21,35 @@
 
 import AppKit
 
+/// One thing the selection toolbar can offer: a button, or a menu of buttons.
+///
+/// A plain description, deliberately free of `SelectionAction` — `CompletionUI` does not depend on
+/// the action engine, and the panel translates between them.
+public enum SelectionToolbarEntry {
+    case action(id: String, title: String)
+    case menu(id: String, title: String, items: [SelectionToolbarEntry])
+
+    public var id: String {
+        switch self {
+        case let .action(id, _), let .menu(id, _, _): return id
+        }
+    }
+
+    public var title: String {
+        switch self {
+        case let .action(_, title), let .menu(_, title, _): return title
+        }
+    }
+}
+
+/// What the panel is showing.
+public enum SelectionToolbarState {
+    case actions([SelectionToolbarEntry])
+    case working(title: String)
+    case result(text: String, canReplace: Bool)
+    case message(String)
+}
+
 /// A flat text item in the selection toolbar. No fill at rest; a quiet rounded highlight on hover,
 /// inset from the capsule's edges the way a menu item's highlight is inset from its menu.
 public final class ToolbarPillButton: NSButton {

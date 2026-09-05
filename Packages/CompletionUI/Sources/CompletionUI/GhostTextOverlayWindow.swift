@@ -223,15 +223,6 @@ public final class GhostTextOverlayWindow {
     /// Without `acceptsFirstMouse` the first click on a background-app panel is spent activating it,
     /// which for a suggestion means the user clicks once, nothing happens, and the suggestion is
     /// gone by the time they click again.
-    final class FirstMouseHostingView: NSHostingView<AnyView> {
-        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-
-        @available(*, unavailable)
-        required init(coder: NSCoder) { fatalError("init(coder:) is not used") }
-
-        required init(rootView: AnyView) { super.init(rootView: rootView) }
-    }
-
     static func availableTextWidth(for placement: OverlayPlacement, singleLineWidth: CGFloat) -> CGFloat {
         guard let field = placement.fieldRect, !field.isEmpty else {
             return max(1, singleLineWidth)
