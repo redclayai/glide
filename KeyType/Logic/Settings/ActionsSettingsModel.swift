@@ -116,7 +116,7 @@ final class ActionsSettingsModel: ObservableObject {
             switch self {
             case .transform: return (.transform(.titleCase), "textformat", .replaceSelection, "My Transformation")
             case .prompt: return (.prompt("Rewrite the text below to be clearer. Reply with the rewritten text and nothing else."), "sparkles", .replaceSelection, "My Prompt")
-            case .javaScript: return (.javaScript("text.split(' ').length + ' words'"), "curlybraces", .preview, "My Script")
+            case .javaScript: return (.javaScript("function run(selected_text) {\n  return selected_text.trim();\n}"), "curlybraces", .replaceSelection, "My Script")
             case .shell: return (.shell("printf '%s' {{text}} | wc -w"), "terminal", .preview, "Word Count")
             case .appleScript: return (.appleScript("return \"{{text}}\""), "applescript", .preview, "My AppleScript")
             case .url: return (.url("https://duckduckgo.com/?q={{text}}"), "link", .openURL, "My Link")
@@ -244,7 +244,7 @@ final class ActionsSettingsModel: ObservableObject {
         case .prompt:
             return "The selected text is appended below your instruction."
         case .javaScript:
-            return "The selection is available as `text`. Write an expression, or a body with `return`. No network or filesystem access."
+            return "The selection is available as `text` or `selected_text`. Write an expression, a body with `return`, or a `function run(selected_text)`. No network or filesystem access."
         case .shell:
             return "The selection arrives on stdin, and `{{text}}` is substituted as a safely quoted argument."
         case .appleScript:

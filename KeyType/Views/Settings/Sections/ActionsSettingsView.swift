@@ -85,8 +85,32 @@ struct ActionsSettingsView: View {
 
     // MARK: - Detail
 
-    @ViewBuilder
     private var detail: some View {
+        VStack(spacing: 0) {
+            selectedDetail
+            Divider()
+            // Always visible, whatever is selected. It was originally written as a section for the
+            // editor and then never placed anywhere, which left shell and AppleScript actions
+            // permanently unreachable — a switch that exists in the code and not on screen is the
+            // same as no switch.
+            Form {
+                CodeExecutionSettingsSection(model: model)
+                Section("Anywhere") {
+                    Label("⌃⌥A opens these actions for whatever you have selected, in any app.",
+                          systemImage: "keyboard")
+                        .font(.callout)
+                    Text("The toolbar appears on its own where an app tells macOS what you have selected. Many do not — this shortcut asks the app directly instead, so your actions are reachable everywhere.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .formStyle(.grouped)
+            .frame(maxHeight: 250)
+        }
+    }
+
+    @ViewBuilder
+    private var selectedDetail: some View {
         if let action = model.selectedAction {
             if action.isBuiltIn {
                 BuiltInActionDetail(action: action)

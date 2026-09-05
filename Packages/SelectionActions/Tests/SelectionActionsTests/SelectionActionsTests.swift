@@ -222,6 +222,32 @@ final class JavaScriptActionRunnerTests: XCTestCase {
         XCTAssertEqual(result, "{\n  \"a\": 1\n}")
     }
 
+    /// The convention other selection-action tools use. A snippet copied from one of them defined
+    /// `run` and never called it, so the whole thing evaluated to undefined. See ADR-140.
+    func testNamedRunEntryPoint() throws {
+        let source = "function run(selected_text) {\n  return selected_text.trim();\n}"
+        XCTAssertEqual(try JavaScriptActionRunner.run(source, text: "  hello  "), "hello")
+    }
+
+    func testRunAssignedToAConstIsAlsoCalled() throws {
+        XCTAssertEqual(
+            try JavaScriptActionRunner.run("const run = (t) => t.toUpperCase();", text: "hi"),
+            "HI"
+        )
+    }
+
+    func testSelectedTextIsBoundAlongsideText() throws {
+        XCTAssertEqual(try JavaScriptActionRunner.run("selected_text.trim()", text: " x "), "x")
+        XCTAssertEqual(try JavaScriptActionRunner.run("text.trim()", text: " x "), "x")
+    }
+
+    func testRunDetectionDoesNotFireOnIncidentalMentions() {
+        XCTAssertFalse(JavaScriptActionRunner.definesRunFunction("return text.replace('run', 'walk')"))
+        XCTAssertFalse(JavaScriptActionRunner.definesRunFunction("text.split('running')"))
+        XCTAssertTrue(JavaScriptActionRunner.definesRunFunction("function run(x){return x}"))
+        XCTAssertTrue(JavaScriptActionRunner.definesRunFunction("let run = function (x) { return x }"))
+    }
+
     func testSyntaxErrorSurfacesRatherThanReturningGarbage() {
         XCTAssertThrowsError(try JavaScriptActionRunner.run("this is not javascript", text: "x"))
     }

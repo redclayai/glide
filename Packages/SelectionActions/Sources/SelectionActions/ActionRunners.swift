@@ -219,12 +219,24 @@ public enum TextTransformer {
 
 // MARK: - JavaScript
 
-/// Runs a JavaScript body with the selection bound to `text`.
+/// Runs a JavaScript snippet with the selection bound to `text` (and `selected_text`).
 ///
 /// The context is bare. `JSContext` with no host objects installed has no filesystem, no network, no
 /// timers and no `require` — the reachable surface is ECMAScript itself, which is exactly what a text
 /// transform needs and nothing more. That is why a JS action is classified as having no side effects
 /// while a shell action is not.
+///
+/// Three shapes are accepted, because people write all three and rejecting any of them is a support
+/// burden for no gain:
+///
+///   1. A bare expression — `JSON.stringify(JSON.parse(text), null, 2)`
+///   2. A body with an explicit `return` — `var n = text.length; return n + " chars";`
+///   3. A named entry point — `function run(selected_text) { return selected_text.trim(); }`
+///
+/// The third exists for portability. It is the convention other selection-action tools use, and a
+/// snippet copied from one of them defined `run` and never called it, so the whole thing evaluated to
+/// `undefined` and surfaced as "the action produced no text". `selected_text` is bound alongside
+/// `text` for the same reason.
 public enum JavaScriptActionRunner {
     public static func run(_ source: String, text: String) throws -> String {
         guard let context = JSContext() else { throw ActionError.scriptFailed("JavaScript is unavailable.") }
@@ -234,17 +246,34 @@ public enum JavaScriptActionRunner {
             failure = exception?.toString() ?? "Unknown JavaScript error"
         }
         context.setObject(text, forKeyedSubscript: "text" as NSString)
+        context.setObject(text, forKeyedSubscript: "selected_text" as NSString)
 
-        // Two shapes are accepted, because users write both: a bare expression
-        // (`JSON.stringify(JSON.parse(text), null, 2)`) and a multi-statement body with an explicit
-        // `return`. Rejecting either would be a support burden for no gain, and the difference is one
-        // substring check — an expression gets wrapped in `return (...)`, a body is used as-is.
-        let body = source.contains("return ") ? source : "return (\(source));"
-        let value = context.evaluateScript("(function(text) { \"use strict\"; \(body) })(text)")
+        let script: String
+        if definesRunFunction(source) {
+            // Evaluate the definition, then call it. Both names are passed so either parameter
+            // convention reads naturally inside.
+            script = "(function(text, selected_text) { \(source)\nreturn run(selected_text); })(text, selected_text)"
+        } else if source.contains("return ") {
+            script = "(function(text, selected_text) { \"use strict\"; \(source) })(text, selected_text)"
+        } else {
+            script = "(function(text, selected_text) { \"use strict\"; return (\(source)); })(text, selected_text)"
+        }
 
+        let value = context.evaluateScript(script)
         if let failure { throw ActionError.scriptFailed(failure) }
         guard let value, !value.isUndefined, !value.isNull else { throw ActionError.emptyResult }
         return value.toString() ?? ""
+    }
+
+    /// Whether the snippet defines its own `run` entry point, in any of the ways one is written.
+    /// Deliberately syntactic and shallow — it only decides which wrapper to use, and a false
+    /// negative just falls through to the body form, which is the same behaviour as before.
+    static func definesRunFunction(_ source: String) -> Bool {
+        let patterns = [
+            #"\bfunction\s+run\s*\("#,
+            #"\b(?:const|let|var)\s+run\s*=\s*(?:async\s*)?(?:function|\()"#,
+        ]
+        return patterns.contains { source.range(of: $0, options: .regularExpression) != nil }
     }
 }
 

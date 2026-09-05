@@ -4117,3 +4117,31 @@ text. Both are now closed:
   the model's tests, not visually, after a coordinate-based click crossed onto another display and
   opened System Settings instead. Worth saying plainly rather than implying a screenshot I do not
   have.
+
+## ADR-140 — Actions reach every app, not every app that cooperates
+
+- Date: 2026-09-05
+- Status: accepted
+- Extends ADR-139.
+- Context: Custom actions were described as working everywhere. They were not. The polling path can
+  only offer actions where Accessibility reports a selection, and the app-compatibility log shows how
+  often that fails — Millie reports `snapSel=-1 rawSel=-1` on essentially every tick. In such apps the
+  toolbar never appears at all, so a user's own actions are unreachable in precisely the apps where
+  Accessibility is weakest.
+- Decision: ⌃⌥A obtains the selection with ⌘C, which every app supports, ranks the actions for it, and
+  presents the toolbar at the pointer. Results go back as a paste rather than an accessibility write,
+  because an app that will not report its selection will not let us set it either — and ADR-133
+  showed a failed accessibility attempt can actively damage what follows, so it is skipped rather than
+  merely expected to fail. The clipboard is restored immediately after the read and again after the
+  paste.
+- Consequences: Two routes to the same actions with different reliability characteristics. The poll
+  is silent and automatic where it works; the hotkey always works but requires a keystroke and
+  briefly borrows the clipboard. The hotkey is documented in the Actions pane, because an
+  undiscoverable shortcut is not a feature.
+- Two bugs found while writing this, both of the same shape — code that exists and is never reached:
+  `CodeExecutionSettingsSection` was written in 0.32 and placed in no view, so the switch gating shell
+  and AppleScript could never be turned on; and `JavaScriptActionRunner` accepted only two of the
+  three shapes people write, so a `function run(selected_text)` snippet defined the entry point and
+  never called it, evaluating to undefined and surfacing as "the action produced no text". Both were
+  invisible to the compiler and to the tests, because nothing asserted that the view rendered the
+  section or that the third convention worked.
