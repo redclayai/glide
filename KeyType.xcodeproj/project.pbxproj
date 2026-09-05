@@ -21,6 +21,7 @@
 		4B5450012FC9600000000007 /* CompletionUI in Frameworks */ = {isa = PBXBuildFile; productRef = 4B5450012FC9600000000017 /* CompletionUI */; };
 		4B5450012FC9600000000008 /* TextInsertion in Frameworks */ = {isa = PBXBuildFile; productRef = 4B5450012FC9600000000018 /* TextInsertion */; };
 		4B54500A2FC9600000000A01 /* Proofreading in Frameworks */ = {isa = PBXBuildFile; productRef = 4B54500A2FC9600000000A02 /* Proofreading */; };
+		4B54500A2FC96000000009A1 /* SelectionActions in Frameworks */ = {isa = PBXBuildFile; productRef = 4B54500A2FC96000000009A2 /* SelectionActions */; };
 		4B5450012FC9600000000009 /* AppCompatibility in Frameworks */ = {isa = PBXBuildFile; productRef = 4B5450012FC9600000000019 /* AppCompatibility */; };
 		4B5450012FC960000000000A /* KeyTypeModuleGraph.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B5450012FC960000000000B /* KeyTypeModuleGraph.swift */; };
 		4B5450012FC9600000000030 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B5450012FC9600000000031 /* AppDelegate.swift */; };
@@ -183,6 +184,7 @@
 				4B5450012FC9600000000003 /* Prompting in Frameworks */,
 				4B5450012FC9600000000008 /* TextInsertion in Frameworks */,
 				4B54500A2FC9600000000A01 /* Proofreading in Frameworks */,
+				4B54500A2FC96000000009A1 /* SelectionActions in Frameworks */,
 				4B5450012FC9600000000005 /* TokenProfiles in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -516,6 +518,7 @@
 				4B5450012FC9600000000013 /* Prompting */,
 				4B5450012FC9600000000018 /* TextInsertion */,
 				4B54500A2FC9600000000A02 /* Proofreading */,
+				4B54500A2FC96000000009A2 /* SelectionActions */,
 				4B5450012FC9600000000015 /* TokenProfiles */,
 			);
 			productName = KeyType;
@@ -609,6 +612,7 @@
 				4B5450012FC9600000000021 /* XCLocalSwiftPackageReference "Packages/Prompting" */,
 				4B5450012FC9600000000026 /* XCLocalSwiftPackageReference "Packages/TextInsertion" */,
 				4B54500A2FC9600000000A03 /* XCLocalSwiftPackageReference "Packages/Proofreading" */,
+				4B54500A2FC96000000009A3 /* XCLocalSwiftPackageReference "Packages/SelectionActions" */,
 				4B5450012FC9600000000023 /* XCLocalSwiftPackageReference "Packages/TokenProfiles" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -865,7 +869,7 @@
 				CODE_SIGN_ENTITLEMENTS = KeyType/KeyType.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 29;
+				CURRENT_PROJECT_VERSION = 30;
 				DEVELOPMENT_TEAM = 3RPG92BQ9C;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -878,7 +882,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.29;
+				MARKETING_VERSION = 0.30;
 				PRODUCT_BUNDLE_IDENTIFIER = app.glide;
 				PRODUCT_NAME = Glide;
 				REGISTER_APP_GROUPS = YES;
@@ -899,7 +903,7 @@
 				CODE_SIGN_ENTITLEMENTS = KeyType/KeyType.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 29;
+				CURRENT_PROJECT_VERSION = 30;
 				DEVELOPMENT_TEAM = 3RPG92BQ9C;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -912,7 +916,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.29;
+				MARKETING_VERSION = 0.30;
 				PRODUCT_BUNDLE_IDENTIFIER = app.glide;
 				PRODUCT_NAME = Glide;
 				REGISTER_APP_GROUPS = YES;
@@ -930,7 +934,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 29;
+				CURRENT_PROJECT_VERSION = 30;
 				DEVELOPMENT_TEAM = 3RPG92BQ9C;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.4;
@@ -951,7 +955,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 29;
+				CURRENT_PROJECT_VERSION = 30;
 				DEVELOPMENT_TEAM = 3RPG92BQ9C;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.4;
@@ -971,7 +975,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 29;
+				CURRENT_PROJECT_VERSION = 30;
 				DEVELOPMENT_TEAM = 3RPG92BQ9C;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
@@ -990,7 +994,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 29;
+				CURRENT_PROJECT_VERSION = 30;
 				DEVELOPMENT_TEAM = 3RPG92BQ9C;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
@@ -1083,6 +1087,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/Proofreading;
 		};
+		4B54500A2FC96000000009A3 /* XCLocalSwiftPackageReference "Packages/SelectionActions" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/SelectionActions;
+		};
 		4B5450012FC9600000000027 /* XCLocalSwiftPackageReference "Packages/AppCompatibility" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/AppCompatibility;
@@ -1165,6 +1173,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 4B54500A2FC9600000000A03 /* XCLocalSwiftPackageReference "Packages/Proofreading" */;
 			productName = Proofreading;
+		};
+		4B54500A2FC96000000009A2 /* SelectionActions */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4B54500A2FC96000000009A3 /* XCLocalSwiftPackageReference "Packages/SelectionActions" */;
+			productName = SelectionActions;
 		};
 		4B5450012FC9600000000019 /* AppCompatibility */ = {
 			isa = XCSwiftPackageProductDependency;

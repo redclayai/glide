@@ -455,6 +455,17 @@ final class ActionCatalogTests: XCTestCase {
         }
     }
 
+    /// A bare URL is one "word", so anything bounded only by word count would otherwise be offered
+    /// for it. Guards, not signals — see `discriminators`.
+    func testALinkSelectionIsNotOfferedTheDictionary() {
+        let ranked = ActionRanker().rank(ActionCatalog.builtIns,
+                                         for: SelectionContext(text: "https://apple.com"),
+                                         preferences: ActionPreferences())
+        let offered = Set((ranked.visible + ranked.overflow).map(\.id))
+        XCTAssertFalse(offered.contains("builtin.define"))
+        XCTAssertFalse(offered.contains("builtin.translate.english"))
+    }
+
     func testALinkSelectionOffersOpeningIt() {
         let ranked = ActionRanker().rank(ActionCatalog.builtIns,
                                          for: SelectionContext(text: "https://apple.com"),

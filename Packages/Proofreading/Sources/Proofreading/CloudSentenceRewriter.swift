@@ -25,9 +25,15 @@ import Foundation
 /// What the caller is asking for. The distinction is whether the writer's wording may change:
 /// `grammar` repairs, `polish` rephrases. Keeping both in one place means the on-device path and the
 /// hosted path ask for the same thing in the same words.
-public enum CloudRewriteStyle: Sendable {
+/// `Equatable` is declared rather than synthesized — an enum loses the free conformance as soon as
+/// one case carries an associated value.
+public enum CloudRewriteStyle: Sendable, Equatable {
     case grammar
     case polish
+    /// An arbitrary instruction. Every prompt-kind selection action arrives this way, so provider
+    /// plumbing, retry handling and rate-limit reporting are shared with the two built-in styles
+    /// rather than duplicated per action.
+    case custom(String)
 
     var instruction: String {
         switch self {
@@ -43,6 +49,8 @@ public enum CloudRewriteStyle: Sendable {
             and a natural tone in the author's voice. Do not add information, do not change what is \
             being claimed, and do not make it longer. Reply with the rewritten text and nothing else.
             """
+        case let .custom(instruction):
+            return instruction
         }
     }
 }

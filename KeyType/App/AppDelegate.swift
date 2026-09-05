@@ -130,7 +130,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let selectionRewriter: (String, CloudRewriteStyle) async -> Result<String, Error> = { text, style in
             switch settings.grammarBackend {
             case .local:
-                let local: RewriteService.Style = style == .polish ? .polish : .grammar
+                let local: RewriteService.Style
+                switch style {
+                case .polish: local = .polish
+                case .grammar: local = .grammar
+                case let .custom(instruction): local = .custom(instruction)
+                }
                 guard let result = await rewriteService.rewrite(
                     text, style: local, modelFilename: modelFilename()
                 ) else {

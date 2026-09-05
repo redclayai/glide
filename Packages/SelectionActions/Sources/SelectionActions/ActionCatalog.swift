@@ -104,7 +104,7 @@ public enum ActionCatalog {
             title: "To English",
             symbolName: "character.book.closed",
             kind: .prompt("Translate the text below into English. If it is already English, reply with it unchanged. Reply with the translation and nothing else."),
-            conditions: ActionConditions(minimumWords: 1),
+            conditions: ActionConditions(minimumWords: 1, requiresURL: false),
             isBuiltIn: true,
             priority: 40
         ),
@@ -231,7 +231,9 @@ public enum ActionCatalog {
                         isBuiltIn: true, priority: 44),
         SelectionAction(id: "builtin.define", title: "Define", symbolName: "character.book.closed.fill",
                         kind: .url("dict://{{text}}"), output: .openURL,
-                        conditions: ActionConditions(maximumWords: 2),
+                        // `requiresURL: false` is a guard, not a signal — a bare URL is one "word"
+                        // and would otherwise be offered to the dictionary.
+                        conditions: ActionConditions(maximumWords: 2, requiresURL: false),
                         isBuiltIn: true, priority: 75),
         SelectionAction(id: "builtin.email", title: "Email", symbolName: "envelope",
                         kind: .url("mailto:{{text}}"), output: .openURL,

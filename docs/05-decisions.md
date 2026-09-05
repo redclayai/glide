@@ -4012,3 +4012,45 @@ text. Both are now closed:
   alternative failure is duplicated text. The wider lesson is about duplication rather than about
   Accessibility: two paths did the same job, one learned, and the other kept the bug. Worth folding
   these into a shared verified-write helper the next time either is touched.
+
+## ADR-137 — Selection actions are data, not code
+
+- Date: 2026-09-04
+- Status: accepted
+- Builds on ADR-134 (the toolbar is a system callout, not a branded one).
+- Context: The toolbar had two actions because it was two hardcoded `NSButton`s and a two-case enum:
+  each new action cost a property, a selector, a stack insertion and a switch arm. Reaching parity
+  with a competitor's ~35 actions that way would have been thirty-five copies of the same mistake,
+  and would still not have let a user write one of their own.
+- Decision: A `SelectionActions` package where an action is a value — id, title, kind, output,
+  conditions. Six kinds (AI prompt, offline transform, JavaScript, shell, AppleScript, URL template),
+  all `Codable`, because a custom action must survive relaunch; closures live only in the runners
+  that interpret those values. Built-ins and user actions are the same type, differing by a flag, so
+  ranking, persistence, settings and execution work on both without knowing which they hold.
+- Notable choices:
+  - The catalogue is weighted towards *offline transforms*. Every prompt costs a round trip, a pasted
+    key and text leaving the machine; a transform is instant and works with the network off. The
+    feeling of breadth comes mostly from the free ones.
+  - Preferences are stored **by id**, and the catalogue is re-derived from the binary each launch, so
+    a new build's actions reach an existing install without discarding pins, order or disabled flags.
+    Storing whole records would have forced a choice between clobbering the user's edits and freezing
+    the built-ins at their shipped version.
+  - The ranker's authority order is arithmetic, not aspirational. Pinned, then content
+    discriminators, then decayed recency, then priority — on *separated scales*, because with all
+    terms in one range a high `priority` beat a perfect content match and a habit beat both. Two
+    tests caught exactly that.
+  - Only conditions that assert something positive about the content are scored. Length bounds are
+    guards — `maximumWords: 60` on Expand does not mean a 60-word paragraph is what Expand is *for* —
+    and counting them as relevance put Expand above Summarize on a long paragraph.
+  - Prompts reach the engine as a new `.custom(String)` style on the existing rewrite closure, so
+    provider plumbing, retries and rate-limit reporting stay in one place rather than once per action.
+  - Shell and AppleScript are real, gated behind `ExecutionPolicy`, and off by default. They exist
+    because they are why a power user wants this at all, and they are safe to offer because *the user
+    writes them* — there is no marketplace and no import path. JavaScript runs in a bare `JSContext`
+    with no host objects, which is why it is classified as having no side effects and shell is not.
+- Consequences: A new action is now a value in an array. The settings pane, the custom-action editor
+  and the multi-provider work all sit on top of this and change no part of it.
+- Note on tooling: registering the package in `project.pbxproj` by hand corrupted the project twice
+  before I noticed the cause — the object IDs I had picked were already in use. `plutil -lint` passes
+  on a pbxproj with duplicate IDs, so it is no help; `xcodebuild -list` is the check that actually
+  catches it.
