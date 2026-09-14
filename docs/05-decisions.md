@@ -4311,3 +4311,27 @@ text. Both are now closed:
 - Left alone, and worth knowing: a spelling fix is still suppressed while a completion is visible.
   That is a real design choice — one suggestion at a time — but since completions fire constantly it
   means corrections surface far less often than typos occur.
+
+## ADR-147 — A dismissal is remembered against its selection
+
+- Date: 2026-09-14
+- Status: accepted
+- Context: "This pops all the time and won't auto close. Pops up when I am not even typing." Both
+  symptoms, one cause, and the log caught it exactly: `close button: dismissed` followed by
+  `popover presented` **in the same second**.
+- Cause: `hide()` cleared `shownSelection` and recorded nothing else. The poll runs every ~300ms and
+  decides to present by comparing the current selection against `shownSelection`; with that cleared,
+  an unchanged selection reads as brand new. So every dismissal — the close button, Escape, and the
+  15-second visibility cap — was undone on the next tick. The cap made it periodic: text left
+  selected in any window re-triggered the panel forever without the user touching the keyboard, which
+  is the "pops up when I am not even typing" half.
+- Decision: `hide(suppressingCurrentSelection:)` records the dismissed selection's key, and the poll
+  refuses to present while the current selection still matches it. The key is cleared when the
+  selection goes away, so re-selecting the same words offers the panel again — dismissing means "not
+  for this selection", not "never for this text".
+- Consequences: the close button and Escape do what they say for the first time. Worth noting how
+  long this survived: the visibility cap (ADR-113) exists *because* the panel could get stuck on
+  screen, and it was itself being defeated by this, so the symptom it was added to prevent was the
+  symptom it produced.
+- Verified: Escape, then 56 seconds with the selection untouched — zero presentations. Previously the
+  panel returned within one poll and again on every cap.

@@ -768,6 +768,10 @@ final class SelectionRewriteController {
 
     /// A changed selection seen once, waiting to be seen again before the panel acts on it.
     private var pendingKey: String?
+    /// A selection the user (or the visibility cap) has already dismissed the panel for. Cleared when
+    /// the selection goes away, so re-selecting the same words offers the panel again — dismissing is
+    /// "not for this selection", not "never for this text".
+    private var dismissedKey: String?
     /// The anchor the visible panel was placed against, so a new one can be judged near or far.
     private var presentedAnchor: CGRect?
     /// How far the anchor must move before a visible panel is allowed to follow it. Below this the
@@ -841,7 +845,7 @@ final class SelectionRewriteController {
         }
         popover.onClose = { [weak self] in
             RewriteLog.write("close button: dismissed")
-            self?.hide()
+            self?.hide(suppressingCurrentSelection: true)
         }
     }
 
@@ -1032,7 +1036,7 @@ final class SelectionRewriteController {
         // cannot get rid of.
         if let shownAt, Date().timeIntervalSince(shownAt) > Self.maximumVisibleSeconds {
             RewriteLog.write("poll: dismissed by the visibility cap")
-            hide()
+            hide(suppressingCurrentSelection: true)
             return
         }
 
@@ -1080,6 +1084,10 @@ final class SelectionRewriteController {
                     emptyPolls += 1
                     if emptyPolls >= 12 { hide() } // ~5s grace before dismissing
                 }
+            } else {
+                // The selection is gone, so a dismissal no longer has anything to suppress.
+                // Re-selecting the same words should offer the panel again.
+                dismissedKey = nil
             }
             return
         }
@@ -1094,6 +1102,9 @@ final class SelectionRewriteController {
             pendingKey = nil
             return
         }
+
+        // Already dismissed for this selection. Stay dismissed.
+        if key == dismissedKey { return }
 
         // A visible panel does not move under the pointer. Even a genuine selection change should not
         // reposition a toolbar the user is currently reaching for; the system's own selection callout
@@ -1191,7 +1202,19 @@ final class SelectionRewriteController {
         popover.present(aboveScreenRect: rect)
     }
 
-    private func hide() {
+    /// Dismiss the panel.
+    ///
+    /// `suppressingCurrentSelection` records the selection it was showing for, so the poll will not
+    /// immediately put it back. Without that, every dismissal was undone within one poll: `hide()`
+    /// cleared `shownSelection`, the next tick 300ms later saw the very same selection as brand new,
+    /// and showed it again. The close button, Escape and the visibility cap all "worked" and all
+    /// looked completely broken — the panel reappeared before the user's finger left the mouse. It is
+    /// also why it seemed to pop up unprompted: a selection left sitting in a window kept
+    /// re-triggering forever on the 15-second cap.
+    private func hide(suppressingCurrentSelection: Bool = false) {
+        if suppressingCurrentSelection, let shown = shownSelection {
+            dismissedKey = Self.selectionKey(shown)
+        }
         shownSelection = nil
         shownBundle = nil
         shownAt = nil
@@ -1210,7 +1233,7 @@ final class SelectionRewriteController {
     fileprivate func dismissFromEscape() {
         guard popover.isVisible else { return }
         RewriteLog.write("escape: dismissed")
-        hide()
+        hide(suppressingCurrentSelection: true)
     }
 
     /// Current mouse location as a small Quartz-space (top-left origin) rect, used to anchor the
