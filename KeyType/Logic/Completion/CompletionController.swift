@@ -260,6 +260,28 @@ final class CompletionController {
     private var lastCaretRect: CGRect?
 
     private(set) var loadState: LoadState = .idle
+
+    /// A one-line, user-facing reason the completion engine is not running, or nil when it is.
+    ///
+    /// Exists because the failure was otherwise completely silent. The model directory was emptied by
+    /// something outside the app, the engine failed to load at launch, and autocomplete simply stopped
+    /// — no banner, no menu bar change, and the only record was an `os_log` line the user will never
+    /// look at. "It just stopped working" is the worst possible failure report to receive, and it was
+    /// the only one this could produce.
+    var unavailableReason: String? {
+        switch loadState {
+        case .ready:
+            return nil
+        case .idle, .loading:
+            return nil
+        case .unavailable:
+            let filename = activeModelFilename ?? ModelContainer.defaultModelFilename
+            if !ModelContainer.modelExists(at: (try? ModelContainer.modelURL(filename: filename)) ?? URL(fileURLWithPath: "/")) {
+                return "No language model installed"
+            }
+            return "The language model could not be loaded"
+        }
+    }
     private(set) var isRunning = false
 
     /// The model filename the current engine was (or is being) built from. Used to coalesce
@@ -403,6 +425,11 @@ final class CompletionController {
             } catch {
                 self.loadState = .unavailable("\(error)")
                 self.log.error("Completion engine unavailable: \(error, privacy: .public)")
+                // Also to the prediction log, which is the file anyone actually reads when asked why
+                // completions stopped. This failure previously existed only in `os_log`, so the log
+                // that is supposed to explain the completion pipeline was silent about the pipeline
+                // not existing.
+                self.predictionLog.append("ENGINE unavailable model=\(modelFilename) — \(error)")
             }
         }
     }

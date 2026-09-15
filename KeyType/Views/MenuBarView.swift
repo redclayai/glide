@@ -40,6 +40,19 @@ struct MenuBarView: View {
             Toggle("Completions enabled", isOn: $completion.completionsEnabled)
                 .disabled(!permissions.accessibility.isGranted)
 
+            // Shown only when the engine is not running. Completions failing silently is the worst
+            // shape this app's failures can take: nothing appears, nothing is said, and the user
+            // concludes the feature is broken rather than that a file is missing. The menu is the one
+            // surface always within reach, so the reason lives here with the fix one click away.
+            if let reason = completion.unavailableReason {
+                Divider()
+                Text(reason)
+                Button("Install a Model…") {
+                    NSApp.activate(ignoringOtherApps: true)
+                    openWindow(id: AppDelegate.settingsWindowID)
+                }
+            }
+
             Divider()
 
             Button("Your Glide…") {

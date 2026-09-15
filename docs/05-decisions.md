@@ -4335,3 +4335,26 @@ text. Both are now closed:
   symptom it produced.
 - Verified: Escape, then 56 seconds with the selection untouched — zero presentations. Previously the
   panel returned within one poll and again on every cap.
+
+## ADR-148 — A missing model is a visible state
+
+- Date: 2026-09-15
+- Status: accepted
+- Context: "Glide is no longer showing type-ahead functionality." The prediction log had **zero**
+  `PREDICT` lines across 253KB while `REWRITE` lines fired on every keystroke — so the Accessibility
+  pipeline was healthy and only the completion engine was dead. `Application Support/KeyType/Models`
+  was empty. The 1.2GB GGUF had been removed on 10 September by something outside the app (history,
+  telemetry and logs were all untouched, and `clearAllPersonalData` only clears the first two).
+- The defect is not the missing file. It is that the app had no way to say so. `loadIfNeeded` caught
+  the error, set `.unavailable`, wrote one `os_log` line and returned; the menu bar was unchanged, the
+  prediction log said nothing, and autocomplete just stopped. "It stopped working" is the least
+  actionable report a user can give, and it was the only report this state could produce.
+- Decision: the engine's unavailability is a first-class, user-visible state. `unavailableReason`
+  distinguishes "no model installed" from "the model could not be loaded" by checking the file, the
+  menu bar shows it with an *Install a Model…* button beside it, and the reason is written to the
+  prediction log — the file anyone actually opens when asked why completions stopped. That log being
+  silent about the completion pipeline not existing was its own small absurdity.
+- Consequences: the one-line rule this session keeps re-learning, now in a fourth place — a failure
+  the user can see the effects of must be a failure the user can see the *reason* for. Silent `try?`,
+  a guard on a property nothing writes (ADR-135), a switch never placed in a view (ADR-140), and now
+  an engine that fails to load without saying so: the same shape each time.
