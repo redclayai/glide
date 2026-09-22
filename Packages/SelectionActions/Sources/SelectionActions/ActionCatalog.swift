@@ -31,7 +31,10 @@ public enum ActionCatalog {
             id: "builtin.grammar",
             title: "Grammar",
             symbolName: "text.badge.checkmark",
-            kind: .prompt("Correct only the spelling, grammar and punctuation of the text below. Keep the wording, tone and meaning exactly as they are. Reply with the corrected text and nothing else."),
+            // `.proofread`, not `.prompt`: spelling is fixed deterministically before the model sees
+            // the text, so Grammar corrects typos even when the model declines to — which, on the
+            // shipped base model, is most of the time (ADR-138).
+            kind: .proofread("Correct the grammar and punctuation of the text below. The spelling has already been corrected. Keep the wording, tone and meaning exactly as they are. Reply with the corrected text and nothing else."),
             conditions: ActionConditions(minimumWords: 2),
             group: "Writing", isBuiltIn: true,
             priority: 100

@@ -115,6 +115,7 @@ final class ActionsSettingsModel: ObservableObject {
         // The kind is named only where it changes how much to trust the row.
         switch action.kind {
         case .javaScript: return "JavaScript · \(outcome.lowercased())"
+        case .proofread: return "Spelling + AI · \(outcome.lowercased())"
         case .shell: return "Command · \(outcome.lowercased())"
         case .appleScript: return "AppleScript · \(outcome.lowercased())"
         case .prompt, .transform, .url: return outcome
@@ -248,7 +249,7 @@ final class ActionsSettingsModel: ObservableObject {
 
     static func body(of kind: ActionKind) -> String {
         switch kind {
-        case let .prompt(text), let .javaScript(text), let .shell(text), let .appleScript(text), let .url(text):
+        case let .prompt(text), let .proofread(text), let .javaScript(text), let .shell(text), let .appleScript(text), let .url(text):
             return text
         case .transform:
             return ""
@@ -258,6 +259,7 @@ final class ActionsSettingsModel: ObservableObject {
     static func replacingBody(of kind: ActionKind, with text: String) -> ActionKind {
         switch kind {
         case .prompt: return .prompt(text)
+        case .proofread: return .proofread(text)
         case .javaScript: return .javaScript(text)
         case .shell: return .shell(text)
         case .appleScript: return .appleScript(text)
@@ -296,7 +298,7 @@ final class ActionsSettingsModel: ObservableObject {
     static func isCode(_ kind: ActionKind) -> Bool {
         switch kind {
         case .javaScript, .shell, .appleScript, .url: return true
-        case .prompt, .transform: return false
+        case .prompt, .proofread, .transform: return false
         }
     }
 
@@ -304,6 +306,8 @@ final class ActionsSettingsModel: ObservableObject {
         switch kind {
         case .prompt:
             return "The selected text is appended below your instruction."
+        case .proofread:
+            return "Spelling is corrected first, then your instruction is applied to the result."
         case .javaScript:
             return "The selection is available as `text` or `selected_text`. Write an expression, a body with `return`, or a `function run(selected_text)`. No network or filesystem access."
         case .shell:

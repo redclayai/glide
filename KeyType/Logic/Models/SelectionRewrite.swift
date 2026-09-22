@@ -729,6 +729,7 @@ final class SelectionRewriteController {
     private let ranker = ActionRanker()
     private let modelResponder: ActionRunner.ModelResponder
     private let allowsCodeExecution: () -> Bool
+    private let spellingCorrector: ActionRunner.SpellingCorrector?
 
     /// Built per run, not once at init. The policy is enforced at execution rather than at display,
     /// so turning "allow commands and scripts" on takes effect on the next click instead of the next
@@ -736,6 +737,7 @@ final class SelectionRewriteController {
     private var runner: ActionRunning {
         ActionRunner(
             policy: ExecutionPolicy(allowsCodeExecution: allowsCodeExecution()),
+            spelling: spellingCorrector,
             model: modelResponder
         )
     }
@@ -809,6 +811,7 @@ final class SelectionRewriteController {
         isEnabledProvider: @escaping () -> Bool = { true },
         allowsCodeExecution: @escaping () -> Bool = { false },
         actionStore: ActionStore = ActionStore(),
+        spellingCorrector: ActionRunner.SpellingCorrector? = nil,
         rewriteText: @escaping (String, CloudRewriteStyle) async -> Result<String, Error>
     ) {
         self.tracker = tracker
@@ -818,6 +821,7 @@ final class SelectionRewriteController {
         self.rewriteText = rewriteText
         self.actionStore = actionStore
         self.allowsCodeExecution = allowsCodeExecution
+        self.spellingCorrector = spellingCorrector
         // Every prompt action reaches the configured engine through the same closure the two
         // built-in styles already used, as a `.custom` instruction. That keeps provider plumbing,
         // retries and rate-limit reporting in one place instead of once per action.

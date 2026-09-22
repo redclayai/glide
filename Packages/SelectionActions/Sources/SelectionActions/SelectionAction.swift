@@ -97,7 +97,7 @@ public struct SelectionAction: Identifiable, Codable, Equatable, Sendable {
         case .javaScript:
             // Sandboxed to a bare JSContext with no host objects — see JavaScriptActionRunner.
             return .none
-        case .prompt:
+        case .prompt, .proofread:
             return .sendsTextToModel
         case .url:
             return .opensURL
@@ -143,6 +143,14 @@ public enum ActionSideEffects: String, Codable, Sendable {
 public enum ActionKind: Codable, Equatable, Sendable {
     /// An instruction handed to whichever model backend is configured, with the selection as input.
     case prompt(String)
+    /// Deterministic spelling correction first, then `instruction` applied to the corrected text.
+    ///
+    /// Separate from `.prompt` because "correct the spelling" inside a prompt is a request, and the
+    /// on-device model is a base model that does not honour requests (ADR-138). Spelling is not a
+    /// judgement call that needs a model: `NSSpellChecker` does it deterministically, offline, and
+    /// correctly. The model is then asked only for the part it is actually good at — grammar and
+    /// punctuation — and if no model is available the spelling fix still lands on its own.
+    case proofread(String)
     /// A pure-Swift text transformation. Free, instant, offline, and impossible to get wrong at
     /// runtime — most of the 35-action feeling comes from these rather than from AI.
     case transform(TextTransform)
@@ -159,6 +167,7 @@ public enum ActionKind: Codable, Equatable, Sendable {
     public var label: String {
         switch self {
         case .prompt: return "AI prompt"
+        case .proofread: return "Spelling + AI"
         case .transform: return "Built-in transform"
         case .javaScript: return "JavaScript"
         case .shell: return "Shell command"

@@ -85,12 +85,22 @@ public struct ActionRunner: ActionRunning {
         _ text: String
     ) async throws -> String
 
+    /// Deterministic spelling correction. Injected for the same reason the model is: this package
+    /// knows nothing about `NSSpellChecker` or `Proofreading`.
+    public typealias SpellingCorrector = @Sendable (_ text: String) async -> String
+
     private let policy: ExecutionPolicy
     private let model: ModelResponder?
+    private let spelling: SpellingCorrector?
 
-    public init(policy: ExecutionPolicy = ExecutionPolicy(), model: ModelResponder? = nil) {
+    public init(
+        policy: ExecutionPolicy = ExecutionPolicy(),
+        spelling: SpellingCorrector? = nil,
+        model: ModelResponder? = nil
+    ) {
         self.policy = policy
         self.model = model
+        self.spelling = spelling
     }
 
     public func run(_ action: SelectionAction, on context: SelectionContext) async throws -> ActionResult {
@@ -114,6 +124,23 @@ public struct ActionRunner: ActionRunning {
         case let .prompt(instruction):
             guard let model else { throw ActionError.modelUnavailable }
             return try await model(instruction, action.fewShot, context.text)
+
+        case let .proofread(instruction):
+            let spelled = await spelling?(context.text) ?? context.text
+            guard let model else {
+                // No model configured, or none installed. The spelling pass is still a real
+                // correction and withholding it because the *other* half is unavailable would be
+                // perverse — half a fix beats an error message.
+                guard spelled != context.text else { throw ActionError.modelUnavailable }
+                return spelled
+            }
+            do {
+                return try await model(instruction, action.fewShot, spelled)
+            } catch {
+                // Same reasoning when the model fails mid-flight: keep what the spell pass earned.
+                guard spelled != context.text else { throw error }
+                return spelled
+            }
 
         case let .javaScript(source):
             return try JavaScriptActionRunner.run(source, text: context.text)

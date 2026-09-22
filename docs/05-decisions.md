@@ -4358,3 +4358,28 @@ text. Both are now closed:
   the user can see the effects of must be a failure the user can see the *reason* for. Silent `try?`,
   a guard on a property nothing writes (ADR-135), a switch never placed in a view (ADR-140), and now
   an engine that fails to load without saying so: the same shape each time.
+
+## ADR-149 — Spelling is not a thing to ask a model for
+
+- Date: 2026-09-22
+- Status: accepted
+- Context: "When grammar is selected, I need you to actually check spelling as well and correct it."
+  The Grammar action's prompt already said "correct only the spelling, grammar and punctuation" — and
+  that is exactly the problem. It is an instruction, the shipped model is a base model, and ADR-138
+  established that it ignores instructions. Spelling was being *requested* rather than *done*.
+- Decision: a new `ActionKind.proofread(instruction)` runs deterministic spelling correction first and
+  passes the corrected text to the model, which is then asked only for grammar and punctuation.
+  Spelling has a right answer and a system API that knows it; handing that to a 2B model was the
+  error. If no model is available the spelling pass still returns — half a fix beats an error, and
+  with the model file missing (ADR-148) that is the difference between Grammar working and not.
+- Two findings that changed the implementation, both from measurement rather than reading:
+  1. `checkSpelling(of:startingAt:)` does not flag "testt" in "This is a testt." — the exact word from
+     the report — while `guesses` for the same range offers "test" happily. `check(_:range:types:)`
+     with `.spelling` flags it, flags everything else tested, and still finds nothing in a clean
+     sentence. The conservative-looking API was too conservative to be useful.
+  2. Taking the checker's first guess renamed a product: "…on Millie and Cueo." → "Cleo", because
+     in-context guess ordering put it first. Capitalised words that do not open a sentence are now
+     left alone. Sentence-initial words are still corrected and keep their capital, so "Teh" → "The".
+- Consequences: the division of labour is now honest — the deterministic engine does what is
+  deterministic, the model does what needs judgement. "we was late … should of called" is deliberately
+  untouched by the spelling pass; it is grammar, and it is the model's half.

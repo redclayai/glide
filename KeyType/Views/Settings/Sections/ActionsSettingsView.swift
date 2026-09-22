@@ -449,7 +449,7 @@ private struct CustomActionEditor: View {
                 }
             }
             .labelsHidden()
-        case .prompt, .javaScript, .shell, .appleScript, .url:
+        case .prompt, .proofread, .javaScript, .shell, .appleScript, .url:
             TextEditor(text: model.bodyBinding(for: action))
                 .font(.system(size: 12, design: ActionsSettingsModel.isCode(action.kind) ? .monospaced : .default))
                 .frame(minHeight: 92)

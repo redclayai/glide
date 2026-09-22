@@ -163,6 +163,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let actionStore = ActionStore()
+        // One checker for the app: `NSSpellChecker` carries a per-document tag that learns ignored
+        // words, and a fresh one per action would forget them.
+        let selectionSpelling = SelectionSpellChecker()
+        let spellingCorrector: ActionRunner.SpellingCorrector = { text in
+            await MainActor.run { selectionSpelling.corrected(text) }
+        }
         self.selectionRewrite = SelectionRewriteController(
             tracker: tracker,
             service: rewriteService,
@@ -170,6 +176,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             isEnabledProvider: { settings.selectionActionsEnabled },
             allowsCodeExecution: { settings.allowsActionCodeExecution },
             actionStore: actionStore,
+            spellingCorrector: spellingCorrector,
             rewriteText: selectionRewriter
         )
         self.actionsSettings = ActionsSettingsModel(
@@ -180,6 +187,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             makeRunner: { allowsCode in
                 ActionRunner(
                     policy: ExecutionPolicy(allowsCodeExecution: allowsCode),
+                    spelling: spellingCorrector,
                     model: { instruction, fewShot, text in
                         let spec = RewriteInstruction(
                             instruction: instruction,
