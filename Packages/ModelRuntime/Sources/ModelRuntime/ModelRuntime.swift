@@ -3,11 +3,26 @@ import Foundation
 
 public struct ModelMetadata: Equatable {
     public var identifier: String
+    /// The model's architecture as the file declares it — `qwen35`, `gemma4`, `llama`.
     public var family: String
     public var vocabularySize: Int
     public var contextLength: Int
     public var eosTokenID: TokenID?
     public var eotTokenID: TokenID?
+
+    /// The model's own chat template, when it ships one.
+    ///
+    /// Says how to format a conversation for *this* model, and nothing else. Prompts built for the
+    /// wrong template come back as the markers themselves plus noise — a Gemma checkpoint fed Qwen's
+    /// ChatML emitted `<think>` forever.
+    ///
+    /// Explicitly *not* a signal of instruction-following, which was the first guess and is wrong in
+    /// both directions here: `Qwen3.5-2B-Base` ships a ChatML template and still ignores
+    /// instructions (ADR-138), while `Gemma 4 E4B` ships none. Whether to instruct or to show worked
+    /// examples is a separate decision, and belongs to the action, not the file format.
+    public var chatTemplate: String?
+
+    public var hasChatTemplate: Bool { chatTemplate?.isEmpty == false }
 
     public init(
         identifier: String,
@@ -15,7 +30,8 @@ public struct ModelMetadata: Equatable {
         vocabularySize: Int,
         contextLength: Int,
         eosTokenID: TokenID? = nil,
-        eotTokenID: TokenID? = nil
+        eotTokenID: TokenID? = nil,
+        chatTemplate: String? = nil
     ) {
         self.identifier = identifier
         self.family = family
@@ -23,7 +39,18 @@ public struct ModelMetadata: Equatable {
         self.contextLength = contextLength
         self.eosTokenID = eosTokenID
         self.eotTokenID = eotTokenID
+        self.chatTemplate = chatTemplate
     }
+}
+
+/// Formats a conversation using a model's own chat template.
+///
+/// Implemented by the runtime because only it can reach llama.cpp's template engine, which supports
+/// the known templates natively — no Jinja, and no per-family formats maintained by hand here.
+public protocol ChatTemplateFormatting {
+    /// The prompt text for a single system+user turn, with the assistant turn opened, or nil when the
+    /// model has no template.
+    func formattedChat(system: String?, user: String) -> String?
 }
 
 public struct TokenLogit: Equatable {

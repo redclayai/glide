@@ -129,7 +129,7 @@ actor RewriteService {
         guard !trimmed.isEmpty else { return nil }
         do {
             let rt = try runtime(for: modelFilename)
-            let prompt = Self.prompt(for: trimmed, style: style)
+            let prompt = Self.prompt(for: trimmed, style: style, runtime: rt)
             // Tokenize with special-token parsing so the ChatML markers (`<|im_start|>`, `<think>`,
             // …) become their single control tokens rather than literal text.
             let promptTokens = try rt.tokenizer.tokenizeAllowingSpecial(prompt)
@@ -196,19 +196,23 @@ actor RewriteService {
     /// leaking "<think> Okay, the user wants…". Tokenized with `tokenizeAllowingSpecial` so the
     /// markers resolve to control tokens. Falls back gracefully on non-ChatML models (the markers
     /// become harmless text and the instruction still steers the output).
-    private static func prompt(for text: String, style: Style) -> String {
-        if style == .inlineGrammar { return fewShotGrammarPrompt(for: text) }
-        // Any example-driven prompt takes the same shape, and for the same measured reason: the
-        // shipped model is a *base* model, and asked by instruction to shorten or change register it
-        // returns the input verbatim. See ADR-138.
-        if case let .custom(spec) = style, spec.hasExamples {
-            return fewShotPrompt(header: spec.fewShotHeader ?? "", examples: spec.examples, text: text)
-        }
-
-        let instruction: String
+    /// Two independent decisions, in order: what *shape* the prompt takes, then how it is *formatted*
+    /// for the model in front of us.
+    ///
+    /// Shape belongs to the action — worked examples where the action supplies them, an instruction
+    /// otherwise — and is unchanged by which checkpoint is loaded, because a template says nothing
+    /// about whether a model obeys instructions (ADR-138, and `Qwen3.5-2B-Base` proves both halves:
+    /// it ships ChatML and ignores instructions anyway).
+    ///
+    /// Formatting belongs to the model, and the template is never written out here: `formattedChat`
+    /// hands it to llama.cpp, which knows the published formats. This file hardcoding ChatML is
+    /// exactly what produced pages of `<think>` when a Gemma checkpoint — which ships no template at
+    /// all — was selected and fed Qwen's markers.
+    private static func prompt(for text: String, style: Style, runtime: LlamaModelRuntime) -> String {
+        let instruction: String?
         switch style {
         case .inlineGrammar:
-            instruction = ""   // handled above
+            instruction = "Correct the grammar of the sentence below. Keep the wording and meaning."
         case .grammar:
             instruction = "Fix the grammar, spelling, and punctuation of the text below. Keep the original meaning, tone, and wording where possible."
         case .polish:
@@ -216,17 +220,27 @@ actor RewriteService {
         case let .custom(spec):
             instruction = spec.instruction
         }
+
+        // Shape first, and it has nothing to do with the file format: an action that supplies worked
+        // examples wants a continuation prompt, because the shipped model ignores instructions
+        // whether or not it carries a template (ADR-138). Only when there are no examples is an
+        // instruction the right shape.
+        if style == .inlineGrammar { return fewShotGrammarPrompt(for: text) }
+        if case let .custom(spec) = style, spec.hasExamples {
+            return fewShotPrompt(header: spec.fewShotHeader ?? "", examples: spec.examples, text: text)
+        }
+
+        // Then formatting: the model's own template where it has one, plain text where it does not.
+        if let formatted = runtime.formattedChat(
+            system: "You are a writing assistant. Output ONLY the rewritten text — no preamble, no explanation, no quotes.",
+            user: "\(instruction ?? "")\n\n\(text)"
+        ) {
+            return formatted
+        }
         return """
-        <|im_start|>system
-        You are a writing assistant. Output ONLY the rewritten text — no preamble, no explanation, no quotes.<|im_end|>
-        <|im_start|>user
-        \(instruction)
+        \(instruction ?? "Rewrite the text below.")
 
-        \(text)<|im_end|>
-        <|im_start|>assistant
-        <think>
-
-        </think>
+        \(text)
 
         """
     }

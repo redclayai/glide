@@ -4413,3 +4413,28 @@ text. Both are now closed:
   within a second, and the ask branch returned before the line that logs a selection. The log told
   the truth only once the panel's *width* change at 17:53:38 was read as a state change rather than
   noise. Logging the branch was the fix for the next person.
+
+## ADR-151 — The prompt's shape and its formatting are separate decisions
+
+- Date: 2026-10-08
+- Status: accepted
+- Context: every AI action was returning `<thinkthinkthink…` or nothing. The cause was not the
+  actions: `selectedModelFilename` was `gemma-4-E4B`, and the prompt builder hardcoded Qwen's ChatML
+  — `<|im_start|>`, plus a pre-closed `<think></think>` block. Those markers reached Gemma as
+  literal text and it echoed them forever. Any model the user selects that is not Qwen produces this.
+- Decision: formatting comes from the model. `llama_model_chat_template` reads the template the file
+  ships with, `llama_chat_apply_template` formats the turn with it, and a model carrying no template
+  gets plain text. llama.cpp already knows the published formats, so no per-family list is maintained
+  here — a list that would grow with every model anyone installs and whose subtle errors look like a
+  broken model rather than a broken prompt.
+- The mistake worth recording, because it was mine and it was confident: the first implementation
+  inferred instruction-following from the presence of a template, and would have skipped the
+  few-shot examples whenever one existed. That is wrong in both directions, and the two models on
+  this machine prove each: `Qwen3.5-2B-Base` ships a ChatML template and still ignores instructions
+  (ADR-138), while `Gemma 4 E4B` ships none at all. Shape and format are independent — shape belongs
+  to the action, format belongs to the model — and conflating them would have silently undone
+  ADR-138's fix.
+- Also recorded so it is not re-litigated: Gemma 4 E4B was recommended as a likely upgrade on the
+  reasoning that it is larger and not named "Base". Measured, it has no chat template and returns
+  the input verbatim for instruction-shaped work. It is not an upgrade. The recommendation was made
+  from the filename; the measurement took four minutes and should have come first.

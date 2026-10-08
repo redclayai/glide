@@ -170,11 +170,12 @@ public actor LlamaModelRuntime: LocalModelRuntime {
         self.anchorSnapshotHistoryLimit = max(0, anchorSnapshotHistoryLimit)
         self.metadata = ModelMetadata(
             identifier: modelURL.lastPathComponent,
-            family: "llama",
+            family: Self.metaString(loadedModel, "general.architecture") ?? "llama",
             vocabularySize: vocabSize,
             contextLength: effectiveContextLength,
             eosTokenID: eosRaw == LLAMA_TOKEN_NULL ? nil : TokenID(eosRaw),
-            eotTokenID: eotRaw == LLAMA_TOKEN_NULL ? nil : TokenID(eotRaw)
+            eotTokenID: eotRaw == LLAMA_TOKEN_NULL ? nil : TokenID(eotRaw),
+            chatTemplate: llama_model_chat_template(loadedModel, nil).map { String(cString: $0) }
         )
         self.tokenizer = LlamaTokenizer(vocab: loadedVocab, vocabSize: vocabSize)
     }
@@ -716,5 +717,68 @@ public actor LlamaModelRuntime: LocalModelRuntime {
         guard prefix.count <= tokens.count else { return false }
         for i in prefix.indices where tokens[i] != prefix[i] { return false }
         return true
+    }
+}
+
+// MARK: - Metadata helpers
+
+extension LlamaModelRuntime {
+    /// One string value from the GGUF key/value block, or nil when the model does not carry it.
+    nonisolated static func metaString(_ model: OpaquePointer, _ key: String) -> String? {
+        var buffer = [CChar](repeating: 0, count: 256)
+        let written = llama_model_meta_val_str(model, key, &buffer, buffer.count)
+        guard written > 0 else { return nil }
+        return String(cString: buffer)
+    }
+}
+
+// MARK: - Chat templates
+
+extension LlamaModelRuntime: ChatTemplateFormatting {
+    /// Format one system+user turn with the model's own template, via llama.cpp.
+    ///
+    /// `llama_chat_apply_template` understands the known templates natively, so Qwen's ChatML and
+    /// Gemma's `<start_of_turn>` turns are both produced correctly without this file knowing either
+    /// of them. Hand-writing per-family formats here was the alternative and is a maintenance trap:
+    /// the list grows with every model anyone installs, and getting one subtly wrong produces output
+    /// that looks like the model is broken rather than like the prompt is.
+    public nonisolated func formattedChat(system: String?, user: String) -> String? {
+        guard let template = metadata.chatTemplate, !template.isEmpty else { return nil }
+        return Self.applyChatTemplate(template, system: system, user: user)
+    }
+
+    nonisolated static func applyChatTemplate(_ template: String, system: String?, user: String) -> String? {
+        // Each role/content pair must outlive the call, so the C strings are built up front rather
+        // than inside the array literal, where they would be dangling by the time llama reads them.
+        var buffers: [UnsafeMutablePointer<CChar>] = []
+        defer { buffers.forEach { free($0) } }
+
+        func cString(_ value: String) -> UnsafeMutablePointer<CChar> {
+            let pointer = strdup(value)!
+            buffers.append(pointer)
+            return pointer
+        }
+
+        var messages: [llama_chat_message] = []
+        if let system, !system.isEmpty {
+            messages.append(llama_chat_message(role: cString("system"), content: cString(system)))
+        }
+        messages.append(llama_chat_message(role: cString("user"), content: cString(user)))
+
+        // Sized from the input and retried once: the template adds markers, and a truncated prompt
+        // is far worse than a second call — it would silently drop the end of the user's text.
+        var capacity = Int32((system?.count ?? 0) + user.count + 1024)
+        for _ in 0..<2 {
+            var output = [CChar](repeating: 0, count: Int(capacity))
+            let written = messages.withUnsafeBufferPointer { buffer in
+                llama_chat_apply_template(template, buffer.baseAddress, buffer.count, true, &output, capacity)
+            }
+            if written < 0 { return nil }
+            if written <= capacity {
+                return String(cString: Array(output.prefix(Int(written))) + [0])
+            }
+            capacity = written + 1
+        }
+        return nil
     }
 }
