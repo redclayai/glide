@@ -4516,3 +4516,64 @@ text. Both are now closed:
 - Also: `ToolbarTabButton` had to return its label's width as its intrinsic size. `NSButton`'s own
   intrinsic width adds about 3.5pt of cell padding a side, which is the whole of the 37-against-31
   gap error, and the reference's spacing is specified label-edge to label-edge.
+
+## ADR-155 — The card corrects without being asked, and what that costs
+
+- Date: 2026-10-08
+- Status: accepted
+- Context: the card opened with a row of buttons. By the time you have pressed Grammar you already
+  knew something was wrong, which is most of the value gone — a proofreader is worth more arriving
+  uninvited than waiting to be summoned.
+- Decision: selecting text starts the pass automatically, in two stages shown as they land.
+  `NSSpellChecker` is deterministic, offline and immeasurably fast, so its diff appears at once;
+  the grammar half is a model call of roughly ten seconds and replaces that diff when it returns.
+  Showing the cheap half first means the common case — a typo — is corrected before the user has
+  finished looking at the card.
+- Off by a switch, not by nothing. Spelling is free; the grammar half spends the on-device model on
+  every selection anywhere in the system, and that is a real cost a user is entitled to decline.
+  Guarded further by a 12–1200 character window and by remembering the text already checked, since
+  the selection poller calls this several times a second for as long as a selection stands.
+- Three things only showed up because the automatic version was *measured* rather than looked at:
+  - **A diff that is not final has to say so.** The spelling diff looked finished for the ten
+    seconds the grammar pass was still running, so Replace at second three silently discarded the
+    grammar fix. `.diff` now carries a `footnote`, and the automatic pass sets "Checking grammar…".
+  - **An offer expires differently from an answer.** `isInteracting` deferred the fifteen-second
+    visibility cap for any diff, so a card that now showed a diff on nearly every selection would
+    never close again — which is the "pops all the time and won't auto close" complaint, returning
+    by a new route. An unsolicited diff is therefore not "interacting". That needed a second
+    predicate, `isShowingBody`, because the two questions have opposite answers for the same state:
+    it may expire, but a poll must not wipe it in the meantime.
+  - **The clock has to start when the card becomes useful.** The cap counts from presentation, so a
+    ten-second grammar pass left five seconds to read its result. It restarts when the pass ends.
+
+## ADR-156 — Two spelling engines, and only where they agree
+
+- Date: 2026-10-08
+- Status: accepted
+- Context: applying corrections unasked raises the bar for each one. The first automatic run turned
+  "sended" into "seeded" — a real word, confidently wrong, in text the user never submitted for
+  correction. `guesses(forWordRange:)` ranks what a word *could* have been and always has an
+  answer, which is the right behaviour for a menu and the wrong one for a silent replacement.
+- Decision: a word is replaced only when `guesses` and `correction(forWordRange:)` — the autocorrect
+  API, which answers the stricter question of what a word should silently become — return the same
+  thing. Measured over 23 misspellings: they agreed on all 17 genuine typos and on none of the 6
+  that should be left alone. 17 fixed, 6 left alone, 0 wrong, 0 missed.
+
+  | word | guesses | correction | |
+  |---|---|---|---|
+  | reprot | report | report | fixed |
+  | sended | seeded | ended | left alone — a verb form, not a spelling |
+  | writed | writes | waited | left alone |
+  | goed | goes | good | left alone |
+  | Supabase | Superbness | nil | left alone |
+  | Cueo | Cleo | nil | left alone |
+
+  What it declines to touch is grammar's job, and grammar runs immediately afterwards.
+- Found while testing that gate, and worse than the thing being tested: **a multi-word span
+  swallowed the rest of the sentence.** For "Teh meetng is tommorow." the checker's first result
+  was the twelve characters "Teh meetng i", with no guesses. Treating it as one correction advanced
+  the cursor past the two misspellings behind it and returned the sentence untouched. A
+  multi-word span is now broken into its words and each judged on its own — skipping the span
+  outright was the first fix and lost "Teh", which is the commonest typo there is. It failed
+  silently and only where several typos sat close together, which is exactly the text this exists
+  for.

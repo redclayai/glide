@@ -177,6 +177,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             allowsCodeExecution: { settings.allowsActionCodeExecution },
             actionStore: actionStore,
             spellingCorrector: spellingCorrector,
+            autoCheckEnabled: { settings.selectionActionsEnabled && settings.selectionAutoCheckEnabled },
             rewriteText: selectionRewriter
         )
         self.actionsSettings = ActionsSettingsModel(

@@ -71,4 +71,42 @@ final class SelectionSpellCheckerTests: XCTestCase {
         XCTAssertEqual(SelectionSpellChecker.matchingCase(of: "Teh", in: "the"), "The")
         XCTAssertEqual(SelectionSpellChecker.matchingCase(of: "TEH", in: "the"), "THE")
     }
+
+    // MARK: - The agreement gate
+    //
+    // These went in when corrections started being applied the moment text is selected rather than
+    // on request. Each case below was produced by one engine and rejected by the other, and each
+    // would have silently replaced a word the user meant to write.
+
+    func testOrdinaryTyposAreStillCorrected() {
+        XCTAssertEqual(
+            checker.corrected("I recieved your emial about the seperate departmant."),
+            "I received your email about the separate department."
+        )
+        XCTAssertEqual(checker.corrected("Teh meetng is tommorow."), "The meeting is tomorrow.")
+    }
+
+    func testVerbFormErrorsAreLeftForTheModel() {
+        // "sended" → guesses says "seeded", autocorrect says "ended". Neither is the word, and the
+        // disagreement is what says so. Tense is grammar's job, and grammar runs next.
+        for sentence in [
+            "The report was sended to the client on Monday.",
+            "She writed a letter and goed to the post office.",
+        ] {
+            XCTAssertEqual(checker.corrected(sentence), sentence)
+        }
+    }
+
+    func testSeveralTyposCloseTogether() {
+        // The checker reports this one as a single twelve-character span, "Teh meetng i", with no
+        // guesses. Taken at face value it corrected nothing; skipped, it lost "Teh".
+        XCTAssertEqual(checker.corrected("Teh meetng is tommorow."), "The meeting is tomorrow.")
+    }
+
+    func testProductNamesSurvive() {
+        // "Supabase" attracted the guess "Superbness", which is the kind of correction that makes
+        // the feature worse than not having it.
+        let sentence = "Our kubernetes cluster uses Supabase and Sparkle."
+        XCTAssertEqual(checker.corrected(sentence), sentence)
+    }
 }

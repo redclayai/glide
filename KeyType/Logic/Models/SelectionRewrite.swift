@@ -368,12 +368,30 @@ final class SelectionRewritePopover: NSPanel {
     /// tracked by the panel losing key rather than by bracketing a modal `popUp` call.
     private(set) var isMenuOpen = false
 
-    /// True while the panel is holding something the user is part-way through — an instruction being
-    /// typed, or a result waiting on a decision. Neither should time out underneath them.
+    /// True when the body came from the automatic pass rather than from the user pressing
+    /// something. The distinction decides whether the card is allowed to time out: an answer to a
+    /// question the user asked must not vanish underneath them, while an offer nobody asked for
+    /// should behave like the actions row it replaced and go away on its own.
+    private(set) var isUnsolicited = false
+
+    /// True while the panel is holding something the user is part-way through. Defers the
+    /// visibility cap.
     var isInteracting: Bool {
         switch state {
-        case .result, .working, .diff: return true
+        case .result, .working: return true
+        case .diff: return !isUnsolicited
         case .actions, .message, .clean: return false
+        }
+    }
+
+    /// True whenever the body is showing something other than the actions row. Separate from
+    /// `isInteracting` because the two questions have different answers for an unsolicited diff:
+    /// it may expire, but a selection poll running four times a second must not wipe it in the
+    /// meantime.
+    var isShowingBody: Bool {
+        switch state {
+        case .actions: return false
+        case .diff, .clean, .result, .working, .message: return true
         }
     }
 
@@ -600,7 +618,7 @@ final class SelectionRewritePopover: NSPanel {
             row.alignment = .centerY
             stack.addArrangedSubview(indented(row))
 
-        case let .diff(title, edits, replacement):
+        case let .diff(title, edits, replacement, footnote):
             messageText = replacement
             let body = NSTextField(labelWithAttributedString:
                 RewriteDiffRendering.attributed(edits, font: CardStyle.bodyFont))
@@ -613,9 +631,23 @@ final class SelectionRewritePopover: NSPanel {
             let replace = textButton("Replace", action: #selector(acceptResult))
             replace.keyEquivalent = "\r"
             (replace as? ToolbarPillButton)?.isPrimary = true
-            let buttons = NSStackView(views: [replace, textButton("Copy", action: #selector(copyMessage))])
+            var trailing: [NSView] = [replace, textButton("Copy", action: #selector(copyMessage))]
+            if let footnote {
+                let spinner = NSProgressIndicator()
+                spinner.style = .spinning
+                spinner.controlSize = .small
+                spinner.startAnimation(nil)
+                spinner.translatesAutoresizingMaskIntoConstraints = false
+                spinner.widthAnchor.constraint(equalToConstant: 14).isActive = true
+                spinner.heightAnchor.constraint(equalToConstant: 14).isActive = true
+                trailing.append(spinner)
+                trailing.append(label(footnote, secondary: true))
+            }
+            let buttons = NSStackView(views: trailing)
             buttons.orientation = .horizontal
+            buttons.alignment = .centerY
             buttons.spacing = 6
+            if footnote != nil { buttons.setCustomSpacing(12, after: trailing[1]) }
 
             stack.addArrangedSubview(ruled(heading: title, views: [body, buttons]))
 
@@ -945,20 +977,38 @@ final class SelectionRewritePopover: NSPanel {
 
         lastRanked = ranked
         buildHeader(ranked)
+        // The header is rebuilt for the new selection either way, but the body is not touched while
+        // it is holding something: the selection poller calls this several times a second, and
+        // before this guard it wiped a running spinner, a finished diff, or a correction the user
+        // was half-way through reading.
+        //
+        // The flag is cleared *after* the guard, not before. Clearing it on every poll would turn
+        // an unsolicited diff into a solicited one within a quarter of a second, and the card
+        // would then never reach its visibility cap.
+        guard !isShowingBody else { return }
+        isUnsolicited = false
         state = .actions(entriesForActiveTab(ranked))
         render()
     }
 
     func showWorking(_ title: String) {
+        isUnsolicited = false
         state = .working(title: title)
         render()
         represent()
     }
 
     /// Show a rewrite as a diff against what the user wrote.
-    func showDiff(title: String, original: String, replacement: String) {
+    func showDiff(
+        title: String,
+        original: String,
+        replacement: String,
+        footnote: String? = nil,
+        solicited: Bool = true
+    ) {
         let edits = RewriteDiff.edits(original: original, replacement: replacement)
-        state = .diff(title: title, edits: edits, replacement: replacement)
+        isUnsolicited = !solicited
+        state = .diff(title: title, edits: edits, replacement: replacement, footnote: footnote)
         render()
         represent()
     }
@@ -966,12 +1016,14 @@ final class SelectionRewritePopover: NSPanel {
     /// Nothing to change. A distinct state rather than an empty diff, because a diff with no edits
     /// is the user's own sentence shown back to them under a heading claiming it was improved.
     func showClean(title: String, detail: String) {
+        isUnsolicited = false
         state = .clean(title: title, detail: detail)
         render()
         represent()
     }
 
     func showResult(_ text: String, canReplace: Bool) {
+        isUnsolicited = false
         state = .result(text: text, canReplace: canReplace)
         render()
         represent()
@@ -1126,6 +1178,23 @@ final class SelectionRewriteController {
     private let modelResponder: ActionRunner.ModelResponder
     private let allowsCodeExecution: () -> Bool
     private let spellingCorrector: ActionRunner.SpellingCorrector?
+    private let autoCheckEnabled: () -> Bool
+
+    /// The automatic spelling-and-grammar pass, and the text it was started for.
+    ///
+    /// The text matters as much as the task: the selection poller re-presents several times a
+    /// second, and without remembering what has already been checked this would start a model call
+    /// per tick for as long as a selection sat on screen.
+    private var autoCheck: Task<Void, Never>?
+    private var autoCheckedText: String?
+    /// The ranking the card was last presented with, kept so a failed automatic pass can put the
+    /// actions back rather than leaving the body empty.
+    private var lastAutoRanked: RankedActions?
+
+    /// Too short and there is nothing to correct; too long and the model call is slow enough that
+    /// it finishes well after the user has moved on, having spent the whole time running.
+    private static let autoCheckMinimumLength = 12
+    private static let autoCheckMaximumLength = 1200
 
     /// Built per run, not once at init. The policy is enforced at execution rather than at display,
     /// so turning "allow commands and scripts" on takes effect on the next click instead of the next
@@ -1210,6 +1279,7 @@ final class SelectionRewriteController {
         allowsCodeExecution: @escaping () -> Bool = { false },
         actionStore: ActionStore = ActionStore(),
         spellingCorrector: ActionRunner.SpellingCorrector? = nil,
+        autoCheckEnabled: @escaping () -> Bool = { false },
         rewriteText: @escaping (String, CloudRewriteStyle) async -> Result<String, Error>
     ) {
         self.tracker = tracker
@@ -1220,6 +1290,7 @@ final class SelectionRewriteController {
         self.actionStore = actionStore
         self.allowsCodeExecution = allowsCodeExecution
         self.spellingCorrector = spellingCorrector
+        self.autoCheckEnabled = autoCheckEnabled
         // Every prompt action reaches the configured engine through the same closure the two
         // built-in styles already used, as a `.custom` instruction. That keeps provider plumbing,
         // retries and rate-limit reporting in one place instead of once per action.
@@ -1593,7 +1664,9 @@ final class SelectionRewriteController {
         // the header takes key from it, and the result has to be pasted back into whatever had focus
         // before that happened.
         appBeforeAsking = NSWorkspace.shared.frontmostApplication
+        lastAutoRanked = ranked
         popover.setActions(ranked)
+        startAutoCheck(for: actionContext)
 
         // A visible panel never follows the pointer.
         //
@@ -1632,6 +1705,10 @@ final class SelectionRewriteController {
     /// also why it seemed to pop up unprompted: a selection left sitting in a window kept
     /// re-triggering forever on the 15-second cap.
     private func hide(suppressingCurrentSelection: Bool = false) {
+        cancelAutoCheck()
+        // Forgotten deliberately: re-selecting the same sentence after dismissing the card should
+        // check it again, because the user asking twice is the user asking.
+        autoCheckedText = nil
         if suppressingCurrentSelection, let shown = shownSelection {
             dismissedKey = Self.selectionKey(shown)
         }
@@ -1733,7 +1810,110 @@ final class SelectionRewriteController {
         up?.post(tap: .cghidEventTap)
     }
 
+    /// Correct the selection without being asked, and show the result in the card.
+    ///
+    /// This is the difference between a toolbar and a proofreader: a toolbar waits to be pressed,
+    /// and by the time you have pressed it you already knew what was wrong. The correction is more
+    /// use arriving uninvited.
+    ///
+    /// Two passes, shown as they land. `NSSpellChecker` is deterministic, offline and immeasurably
+    /// fast, so its diff appears at once; the grammar half is a model call taking seconds, and
+    /// replaces that diff when it returns. Showing the cheap half first means the common case — a
+    /// typo — is corrected before the user has finished looking at the card.
+    private func startAutoCheck(for context: SelectionContext) {
+        guard autoCheckEnabled(), !isBusy else { return }
+        // Already done, or already running, for exactly this text. The poller calls this several
+        // times a second for as long as the selection stands.
+        guard autoCheckedText != context.text else { return }
+
+        let trimmed = context.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count >= Self.autoCheckMinimumLength,
+              trimmed.count <= Self.autoCheckMaximumLength else { return }
+        guard let grammar = actionStore.allActions.first(where: { $0.id == "builtin.grammar" })
+        else { return }
+
+        autoCheckedText = context.text
+        autoCheck?.cancel()
+        RewriteLog.write("autocheck start textLen=\(context.text.count)")
+
+        autoCheck = Task { @MainActor in
+            // Guards the whole pass: the user may have selected something else, pressed a button,
+            // or dismissed the card while a model call was in flight, and none of those should be
+            // overwritten by a result for text that is no longer on screen.
+            @MainActor func stillCurrent() -> Bool {
+                if Task.isCancelled { return false }
+                return self.pendingText == context.text && self.popover.isVisible
+            }
+
+            let spelled = await self.spellingCorrector?(context.text) ?? context.text
+            guard stillCurrent() else { return }
+            let spellingChanged = spelled != context.text
+            if spellingChanged {
+                self.popover.showDiff(
+                    title: "Corrected spelling",
+                    original: context.text,
+                    replacement: spelled,
+                    footnote: "Checking grammar\u{2026}",
+                    solicited: false
+                )
+            }
+
+            do {
+                let result = try await self.runner.run(grammar, on: context)
+                guard stillCurrent() else { return }
+                let changed = result.text.trimmingCharacters(in: .whitespacesAndNewlines) != trimmed
+                if changed {
+                    self.popover.showDiff(
+                        title: spellingChanged ? "Corrected spelling and grammar" : "Corrected grammar",
+                        original: context.text,
+                        replacement: result.text,
+                        solicited: false
+                    )
+                } else if !spellingChanged {
+                    // Both passes found nothing. Worth saying so — it is the answer to the question
+                    // the user asked by selecting the sentence — but only once both have run, which
+                    // is why it is not said after the spelling pass alone.
+                    self.popover.showClean(
+                        title: "This text is well-written",
+                        detail: "To see a different version, choose a rewrite above."
+                    )
+                }
+                // Restart the visibility clock. The cap counts from when the card appeared, but
+                // the grammar pass can take ten seconds of that — leaving five to read a
+                // correction that only just arrived. The clock should run from the moment the card
+                // became worth looking at.
+                self.shownAt = Date()
+                RewriteLog.write("autocheck done spelling=\(spellingChanged) grammar=\(changed)")
+            } catch {
+                // The spelling diff, if there is one, is a real correction and stays. Otherwise the
+                // card goes back to its actions: an automatic pass that nobody asked for has not
+                // earned the right to put an error message in front of anyone.
+                RewriteLog.write("autocheck grammar failed — \(error.localizedDescription)")
+                guard stillCurrent() else { return }
+                if spellingChanged {
+                    // Drop the footnote. The spelling fix stands on its own; leaving "Checking
+                    // grammar…" spinning under it would promise a second pass that is not coming.
+                    self.popover.showDiff(
+                        title: "Corrected spelling",
+                        original: context.text,
+                        replacement: spelled,
+                        solicited: false
+                    )
+                } else if let ranked = self.lastAutoRanked {
+                    self.popover.setActions(ranked)
+                }
+            }
+        }
+    }
+
+    /// Cancels the automatic pass. Anything the user does themselves outranks it.
+    private func cancelAutoCheck() {
+        autoCheck?.cancel()
+        autoCheck = nil
+    }
+
     private func perform(_ action: SelectionAction) {
+        cancelAutoCheck()
         guard let context = pendingContext, !isBusy else {
             RewriteLog.write("perform ignored: context=\(pendingContext != nil) isBusy=\(isBusy)")
             return
@@ -1837,6 +2017,7 @@ final class SelectionRewriteController {
     /// Run a one-off instruction against the selection the panel was opened for.
     @MainActor
     private func runAsk(_ instruction: String) {
+        cancelAutoCheck()
         guard let context = pendingContext, !isBusy else { return }
         // Typing in the header took key from the document, so the result goes back by paste — an
         // Accessibility write across a focus change is not something to rely on (ADR-133, ADR-143).

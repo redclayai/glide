@@ -42,8 +42,10 @@ public enum SelectionToolbarEntry {
 /// What the card is showing.
 public enum SelectionToolbarState {
     case actions([SelectionToolbarEntry])
-    /// A finished rewrite, shown as a diff against what the user wrote.
-    case diff(title: String, edits: [RewriteDiff.Edit], replacement: String)
+    /// A rewrite, shown as a diff against what the user wrote. `footnote` says what is still
+    /// running underneath it — a diff that is correct so far but not yet final has to say so, or
+    /// the user accepts it believing it is the whole answer.
+    case diff(title: String, edits: [RewriteDiff.Edit], replacement: String, footnote: String?)
     case working(title: String)
     case result(text: String, canReplace: Bool)
     case message(String)

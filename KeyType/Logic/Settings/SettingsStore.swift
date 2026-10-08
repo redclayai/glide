@@ -111,6 +111,7 @@ final class SettingsStore {
         static let fullPromptLoggingEnabled = "KeyType.settings.fullPromptLoggingEnabled"
         static let developerOverrideTuningEnabled = "KeyType.settings.developerOverrideTuningEnabled"
         static let selectionActionsEnabled = "KeyType.settings.selectionActionsEnabled"
+        static let selectionAutoCheckEnabled = "KeyType.settings.selectionAutoCheckEnabled"
         static let proofreadEnabled = "Glide.settings.proofreadEnabled"
         static let aiGrammarEnabled = "Glide.settings.aiGrammarEnabled"
         static let grammarBackend = "Glide.settings.grammarBackend"
@@ -214,6 +215,13 @@ final class SettingsStore {
         didSet { defaults.set(selectionActionsEnabled, forKey: Key.selectionActionsEnabled) }
     }
 
+    /// Whether selecting text runs the spelling and grammar pass on its own, rather than waiting
+    /// for the Grammar button. Spelling is free; the grammar half is a model call, which is why
+    /// this is a switch and not simply the behaviour.
+    var selectionAutoCheckEnabled: Bool {
+        didSet { defaults.set(selectionAutoCheckEnabled, forKey: Key.selectionAutoCheckEnabled) }
+    }
+
     var completionLength: CompletionLength {
         didSet { defaults.set(completionLength.rawValue, forKey: Key.completionLength) }
     }
@@ -253,6 +261,7 @@ final class SettingsStore {
         self.developerOverrideTuningEnabled = defaults.bool(forKey: Key.developerOverrideTuningEnabled)
         // Default ON: absent key reads as enabled.
         self.selectionActionsEnabled = defaults.object(forKey: Key.selectionActionsEnabled) as? Bool ?? true
+        self.selectionAutoCheckEnabled = defaults.object(forKey: Key.selectionAutoCheckEnabled) as? Bool ?? true
         self.proofreadEnabled = defaults.object(forKey: Key.proofreadEnabled) as? Bool ?? true
         self.aiGrammarEnabled = defaults.object(forKey: Key.aiGrammarEnabled) as? Bool ?? true
         self.logsCapturedText = defaults.object(forKey: Key.logsCapturedText) as? Bool ?? false

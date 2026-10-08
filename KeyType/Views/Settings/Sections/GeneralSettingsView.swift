@@ -53,6 +53,12 @@ struct GeneralSettingsView: View {
                 Text("Select text, then press ⌃⌥P to polish or ⌃⌥G to fix grammar — works in any app. In apps that expose their selection (TextEdit, Mail, Pages…) a popover also appears with the same actions.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+
+                Toggle("Check spelling and grammar as soon as I select", isOn: $settings.selectionAutoCheckEnabled)
+                    .disabled(!settings.selectionActionsEnabled)
+                Text("The card opens with the correction already in it, instead of waiting for you to press Grammar. Spelling is instant and offline; the grammar pass runs the on-device model, so turn this off if you would rather it only ran when asked.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
