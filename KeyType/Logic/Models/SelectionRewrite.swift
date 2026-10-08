@@ -338,10 +338,26 @@ final class SelectionRewritePopover: NSPanel {
     /// Hosted in `FirstMouseHostingView`, not a plain `NSHostingView`, and that is not incidental: a
     /// borderless non-activating panel gets its first click while another app is frontmost, and
     /// without `acceptsFirstMouse` that click is spent activating rather than pressing (ADR-119).
+    /// The body: one vertical column whose contents change with the state.
     private let stack = NSStackView()
-    private var surface: NSVisualEffectView?
-    /// 10pt, matching the requested spec, rather than the capsule this used to be.
-    private static let cornerRadius: CGFloat = 10
+    /// The tab row, rebuilt per selection and otherwise left alone.
+    private let header = NSStackView()
+    /// Tab row + hairline + body, inside the white surface.
+    private let card = NSStackView()
+    /// The dark strip across the top, outside the white surface.
+    private let strip = NSStackView()
+    private let cardSurface = NSView()
+    private var root: NSView?
+    private let stripSubtitleLabel = NSTextField(labelWithString: "")
+    /// The instruction field, always present in the tab row rather than hidden behind a button. A
+    /// field you can see is a field you remember you have.
+    private let askField = NSTextField()
+    private let askFieldWell = NSView()
+    private var tabButtons: [String: NSButton] = [:]
+    private var activeTab: String?
+    /// The white surface's width, and the measure the body wraps to inside it.
+    private static var surfaceWidth: CGFloat { CardStyle.width(for: NSScreen.main) - CardStyle.chromeInset * 2 }
+    private static var bodyWidth: CGFloat { surfaceWidth - CardStyle.bodyInset - 24 }
     private var state: SelectionToolbarState = .actions([])
     private var visibleItems: [SelectionActions.ToolbarItem] = []
     private var overflowActions: [SelectionAction] = []
@@ -356,8 +372,8 @@ final class SelectionRewritePopover: NSPanel {
     /// typed, or a result waiting on a decision. Neither should time out underneath them.
     var isInteracting: Bool {
         switch state {
-        case .asking, .result, .working: return true
-        case .actions, .message: return false
+        case .result, .working, .diff: return true
+        case .actions, .message, .clean: return false
         }
     }
 
@@ -369,49 +385,189 @@ final class SelectionRewritePopover: NSPanel {
 
     init() {
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 200, height: 36),
+            contentRect: NSRect(x: 0, y: 0, width: CardStyle.cardWidth, height: 120),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
         isOpaque = false
         backgroundColor = .clear
-        // The shadow is drawn by SwiftUI, into the padding the view reserves for it. A window shadow
-        // as well would double it and would not follow the rounded corners.
         hasShadow = true
         level = .popUpMenu
         collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
         isMovable = false
         hidesOnDeactivate = false
+        // Pinned to Aqua. The card is a light surface in every appearance, so a system control
+        // inside it that resolved to Dark Mode would draw white text on white.
+        appearance = NSAppearance(named: .aqua)
 
-        let surface = NSVisualEffectView()
-        surface.material = .popover
-        surface.blendingMode = .behindWindow
-        surface.state = .active
-        surface.wantsLayer = true
-        surface.layer?.cornerRadius = Self.cornerRadius
-        surface.layer?.cornerCurve = .continuous
-        surface.layer?.masksToBounds = true
-        // The high-contrast hairline that separates the panel from a dark background. Drawn on a
-        // sublayer rather than as a border on `surface` so `masksToBounds` cannot clip it to half
-        // width on the outer edge.
-        surface.layer?.borderWidth = 1
-        surface.layer?.borderColor = NSColor(white: 1, alpha: 0.1).cgColor
+        // Two surfaces, not one: a dark rounded container, and a white card inset inside it. The
+        // container shows through as a 37pt strip across the top and a 6pt edge on the other three
+        // sides. Drawing it as a single card with a dark header bar looks close until the corners —
+        // the white card has its own smaller radius sitting inside the dark one, and that nesting
+        // is what the eye actually reads.
+        let root = NSView()
+        root.wantsLayer = true
+        root.layer?.backgroundColor = CardStyle.chrome.cgColor
+        root.layer?.cornerRadius = CardStyle.chromeRadius
+        root.layer?.cornerCurve = .continuous
+        root.layer?.masksToBounds = true
 
-        stack.orientation = .horizontal
-        stack.spacing = 2
-        stack.edgeInsets = NSEdgeInsets(top: 6, left: 6, bottom: 6, right: 6)
+        strip.orientation = .horizontal
+        strip.spacing = 7
+        strip.alignment = .centerY
+        strip.edgeInsets = NSEdgeInsets(top: 0, left: 14, bottom: 0, right: 10)
+        strip.translatesAutoresizingMaskIntoConstraints = false
+
+        cardSurface.wantsLayer = true
+        cardSurface.layer?.backgroundColor = CardStyle.cardFill.cgColor
+        cardSurface.layer?.cornerRadius = CardStyle.cardRadius
+        cardSurface.layer?.cornerCurve = .continuous
+        cardSurface.layer?.borderWidth = 1
+        cardSurface.layer?.borderColor = CardStyle.hairline.cgColor
+        cardSurface.layer?.masksToBounds = true
+        cardSurface.translatesAutoresizingMaskIntoConstraints = false
+
+        header.orientation = .horizontal
+        header.spacing = CardStyle.tabGap
+        header.alignment = .centerY
+        header.edgeInsets = NSEdgeInsets(top: 0, left: CardStyle.tabRowPadding, bottom: 0, right: 17)
+        header.translatesAutoresizingMaskIntoConstraints = false
+
+        let hairline = NSView()
+        hairline.wantsLayer = true
+        hairline.layer?.backgroundColor = CardStyle.hairline.cgColor
+        hairline.translatesAutoresizingMaskIntoConstraints = false
+        hairline.heightAnchor.constraint(equalToConstant: 1).isActive = true
+
+        stack.orientation = .vertical
+        stack.spacing = 0
+        stack.alignment = .leading
+        stack.edgeInsets = NSEdgeInsets(
+            top: CardStyle.bodyTopGap, left: 0, bottom: CardStyle.bodyTopGap, right: 0
+        )
         stack.translatesAutoresizingMaskIntoConstraints = false
-        surface.addSubview(stack)
+
+        card.orientation = .vertical
+        card.spacing = 0
+        card.alignment = .leading
+        card.translatesAutoresizingMaskIntoConstraints = false
+        card.addArrangedSubview(header)
+        card.addArrangedSubview(hairline)
+        card.addArrangedSubview(stack)
+
+        cardSurface.addSubview(card)
+        root.addSubview(strip)
+        root.addSubview(cardSurface)
+
+        // The white card carries the fixed width and the container follows it, rather than the
+        // other way around: the strip is pinned to the container's edges and so cannot widen it,
+        // which is what lets a long subtitle truncate instead of stretching the card.
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: surface.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: surface.trailingAnchor),
-            stack.topAnchor.constraint(equalTo: surface.topAnchor),
-            stack.bottomAnchor.constraint(equalTo: surface.bottomAnchor),
+            strip.topAnchor.constraint(equalTo: root.topAnchor),
+            strip.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            strip.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            strip.heightAnchor.constraint(equalToConstant: CardStyle.chromeStripHeight),
+
+            cardSurface.widthAnchor.constraint(equalToConstant: Self.surfaceWidth),
+            cardSurface.topAnchor.constraint(equalTo: root.topAnchor, constant: CardStyle.chromeStripHeight),
+            cardSurface.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: CardStyle.chromeInset),
+            cardSurface.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -CardStyle.chromeInset),
+            cardSurface.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -CardStyle.chromeInset),
+
+            card.topAnchor.constraint(equalTo: cardSurface.topAnchor),
+            card.leadingAnchor.constraint(equalTo: cardSurface.leadingAnchor),
+            card.trailingAnchor.constraint(equalTo: cardSurface.trailingAnchor),
+            card.bottomAnchor.constraint(equalTo: cardSurface.bottomAnchor),
+
+            header.widthAnchor.constraint(equalTo: card.widthAnchor),
+            header.heightAnchor.constraint(equalToConstant: CardStyle.tabRowHeight),
+            hairline.widthAnchor.constraint(equalTo: card.widthAnchor),
+            stack.widthAnchor.constraint(equalTo: card.widthAnchor),
         ])
-        contentView = surface
-        self.surface = surface
+        contentView = root
+        self.root = root
+
+        buildStrip()
+        configureAskField()
         render()
+    }
+
+    /// The dark strip: a star, a name, a separator dot, and a line of context that truncates.
+    private func buildStrip() {
+        let star = NSImageView()
+        star.image = NSImage(systemSymbolName: "star.fill", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 11, weight: .bold))
+        star.contentTintColor = CardStyle.gold
+        star.translatesAutoresizingMaskIntoConstraints = false
+
+        let title = NSTextField(labelWithString: "Glide suggestion")
+        title.font = CardStyle.stripFont
+        title.textColor = .white
+
+        let dot = NSTextField(labelWithString: "\u{2022}")
+        dot.font = CardStyle.stripSubtitleFont
+        dot.textColor = NSColor(white: 1, alpha: 0.55)
+
+        stripSubtitleLabel.font = CardStyle.stripSubtitleFont
+        stripSubtitleLabel.textColor = NSColor(white: 1, alpha: 0.72)
+        stripSubtitleLabel.lineBreakMode = .byTruncatingTail
+        stripSubtitleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        let dismiss = ToolbarDismissButton()
+        dismiss.target = self
+        dismiss.action = #selector(closeTapped)
+
+        for view in [star, title, dot, stripSubtitleLabel, spacer, dismiss] as [NSView] {
+            strip.addArrangedSubview(view)
+        }
+        // The gap after the star is tighter than the gap between words, and the dot hugs the text
+        // on both sides; the stack's own spacing is the measure between tab labels, not this.
+        strip.setCustomSpacing(6, after: star)
+        strip.setCustomSpacing(6, after: title)
+        strip.setCustomSpacing(6, after: dot)
+    }
+
+    /// The instruction field. Configured once — `buildHeader` re-adds it on every rebuild, so
+    /// anything that installs a constraint has to happen here or the constraints accumulate.
+    private func configureAskField() {
+        askFieldWell.wantsLayer = true
+        askFieldWell.layer?.backgroundColor = CardStyle.fieldFill.cgColor
+        askFieldWell.layer?.cornerRadius = CardStyle.fieldRadius
+        askFieldWell.layer?.cornerCurve = .continuous
+        askFieldWell.layer?.borderWidth = 1
+        askFieldWell.layer?.borderColor = CardStyle.hairline.cgColor
+        askFieldWell.translatesAutoresizingMaskIntoConstraints = false
+
+        askField.placeholderAttributedString = NSAttributedString(
+            string: "Enter your own\u{2026}",
+            attributes: [.font: CardStyle.fieldFont, .foregroundColor: CardStyle.secondaryText]
+        )
+        askField.font = CardStyle.fieldFont
+        askField.textColor = CardStyle.primaryText
+        askField.isBordered = false
+        askField.drawsBackground = false
+        askField.focusRingType = .none
+        askField.target = self
+        askField.action = #selector(askSubmitted(_:))
+        askField.translatesAutoresizingMaskIntoConstraints = false
+
+        askFieldWell.addSubview(askField)
+        NSLayoutConstraint.activate([
+            askFieldWell.widthAnchor.constraint(equalToConstant: CardStyle.fieldWidth),
+            askFieldWell.heightAnchor.constraint(equalToConstant: CardStyle.fieldHeight),
+            askField.leadingAnchor.constraint(equalTo: askFieldWell.leadingAnchor, constant: 12),
+            askField.trailingAnchor.constraint(equalTo: askFieldWell.trailingAnchor, constant: -10),
+            askField.centerYAnchor.constraint(equalTo: askFieldWell.centerYAnchor),
+        ])
+    }
+
+    /// The line of context in the dark strip.
+    func setStripSubtitle(_ text: String) {
+        stripSubtitleLabel.stringValue = text
     }
 
     // MARK: - State
@@ -424,55 +580,152 @@ final class SelectionRewritePopover: NSPanel {
 
         switch state {
         case let .actions(entries):
-            for entry in entries {
-                stack.addArrangedSubview(button(for: entry))
-            }
-            stack.addArrangedSubview(iconButton("xmark", action: #selector(closeTapped), label: "Dismiss"))
-
-        case .asking:
-            let field = NSTextField(string: "")
-            field.placeholderString = "Tell Glide what to do with this…"
-            field.font = .systemFont(ofSize: 13)
-            field.bezelStyle = .roundedBezel
-            field.focusRingType = .none
-            field.target = self
-            field.action = #selector(askSubmitted(_:))   // fires on Return
-            field.translatesAutoresizingMaskIntoConstraints = false
-            field.widthAnchor.constraint(equalToConstant: Self.askFieldWidth).isActive = true
-            askField = field
-            stack.addArrangedSubview(field)
-
-            let run = textButton("Run", action: #selector(askRunTapped))
-            run.keyEquivalent = "\r"
-            stack.addArrangedSubview(run)
-            stack.addArrangedSubview(iconButton("xmark", action: #selector(closeTapped), label: "Dismiss"))
+            // The one state with no heading: the actions themselves are the content, laid out as a
+            // wrapping row indented to the body measure so they line up with every other state.
+            let row = NSStackView(views: entries.map { button(for: $0) })
+            row.orientation = .horizontal
+            row.spacing = 4
+            row.alignment = .centerY
+            stack.addArrangedSubview(indented(row))
 
         case let .working(title):
             let spinner = NSProgressIndicator()
             spinner.style = .spinning
             spinner.controlSize = .small
             spinner.startAnimation(nil)
-            stack.addArrangedSubview(spinner)
-            stack.addArrangedSubview(label(title + "…", secondary: true))
-            stack.addArrangedSubview(textButton("Cancel", action: #selector(cancelWork)))
+            let caption = label(title + "\u{2026}", secondary: true)
+            let row = NSStackView(views: [spinner, caption, textButton("Cancel", action: #selector(cancelWork))])
+            row.orientation = .horizontal
+            row.spacing = 10
+            row.alignment = .centerY
+            stack.addArrangedSubview(indented(row))
+
+        case let .diff(title, edits, replacement):
+            messageText = replacement
+            let body = NSTextField(labelWithAttributedString:
+                RewriteDiffRendering.attributed(edits, font: CardStyle.bodyFont))
+            body.translatesAutoresizingMaskIntoConstraints = false
+            body.isSelectable = true
+            body.lineBreakMode = .byWordWrapping
+            body.preferredMaxLayoutWidth = Self.bodyWidth
+            body.widthAnchor.constraint(lessThanOrEqualToConstant: Self.bodyWidth).isActive = true
+
+            let replace = textButton("Replace", action: #selector(acceptResult))
+            replace.keyEquivalent = "\r"
+            (replace as? ToolbarPillButton)?.isPrimary = true
+            let buttons = NSStackView(views: [replace, textButton("Copy", action: #selector(copyMessage))])
+            buttons.orientation = .horizontal
+            buttons.spacing = 6
+
+            stack.addArrangedSubview(ruled(heading: title, views: [body, buttons]))
+
+        case let .clean(title, detail):
+            stack.addArrangedSubview(badged(heading: title, detail: detail))
 
         case let .result(text, canReplace):
             messageText = text
-            stack.addArrangedSubview(label(text, secondary: false, wrapping: true))
+            var views: [NSView] = [label(text, secondary: false, wrapping: true)]
+            let buttons = NSStackView()
+            buttons.orientation = .horizontal
+            buttons.spacing = 6
             if canReplace {
                 let replace = textButton("Replace", action: #selector(acceptResult))
                 replace.keyEquivalent = "\r"
-                stack.addArrangedSubview(replace)
+                (replace as? ToolbarPillButton)?.isPrimary = true
+                buttons.addArrangedSubview(replace)
             }
-            stack.addArrangedSubview(textButton("Copy", action: #selector(copyMessage)))
-            stack.addArrangedSubview(iconButton("xmark", action: #selector(closeTapped), label: "Dismiss"))
+            buttons.addArrangedSubview(textButton("Copy", action: #selector(copyMessage)))
+            views.append(buttons)
+            stack.addArrangedSubview(ruled(heading: nil, views: views))
 
         case let .message(text):
             messageText = text
-            stack.addArrangedSubview(label(text, secondary: true, wrapping: true))
-            stack.addArrangedSubview(iconButton("xmark", action: #selector(closeTapped), label: "Dismiss"))
+            stack.addArrangedSubview(indented(label(text, secondary: true, wrapping: true)))
         }
         layoutIfNeeded()
+    }
+
+    // MARK: - Body layout
+    //
+    // Three shapes, and every state is one of them: a plain indented row, a block behind the accent
+    // rule, and the badge block for "nothing to change". Keeping them as three functions is what
+    // stops the measurements drifting apart between states.
+
+    /// A row at the body measure, with no rule beside it.
+    private func indented(_ view: NSView) -> NSView {
+        let row = NSStackView(views: [view])
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.edgeInsets = NSEdgeInsets(top: 0, left: CardStyle.bodyInset, bottom: 0, right: 20)
+        return row
+    }
+
+    /// A heading and its content behind the 4pt accent rule, which runs the full height of the
+    /// block rather than a fixed length — that is what makes it read as a margin mark on the
+    /// proposal instead of a bullet beside it.
+    private func ruled(heading: String?, views: [NSView]) -> NSView {
+        let column = NSStackView()
+        column.orientation = .vertical
+        column.alignment = .leading
+        column.spacing = 10
+        if let heading {
+            let title = NSTextField(labelWithString: heading)
+            title.font = CardStyle.headingFont
+            title.textColor = CardStyle.accentText
+            column.addArrangedSubview(title)
+        }
+        for view in views { column.addArrangedSubview(view) }
+
+        let rule = NSView()
+        rule.wantsLayer = true
+        rule.layer?.backgroundColor = CardStyle.accentRule.cgColor
+        rule.translatesAutoresizingMaskIntoConstraints = false
+        rule.widthAnchor.constraint(equalToConstant: CardStyle.ruleWidth).isActive = true
+
+        let row = NSStackView(views: [rule, column])
+        row.orientation = .horizontal
+        row.alignment = .top
+        row.spacing = CardStyle.bodyInset - CardStyle.ruleInset - CardStyle.ruleWidth
+        row.edgeInsets = NSEdgeInsets(top: 0, left: CardStyle.ruleInset, bottom: 0, right: 20)
+        rule.heightAnchor.constraint(equalTo: column.heightAnchor).isActive = true
+        return row
+    }
+
+    /// The "nothing to change" block: a filled check where the rule would be, because there is no
+    /// proposal for a rule to mark.
+    private func badged(heading: String, detail: String) -> NSView {
+        let badge = NSImageView()
+        badge.image = NSImage(systemSymbolName: "checkmark", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 10, weight: .bold))
+        badge.contentTintColor = .white
+        badge.wantsLayer = true
+        badge.layer?.backgroundColor = CardStyle.badgeFill.cgColor
+        badge.layer?.cornerRadius = 4
+        badge.layer?.cornerCurve = .continuous
+        badge.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            badge.widthAnchor.constraint(equalToConstant: 18),
+            badge.heightAnchor.constraint(equalToConstant: 18),
+        ])
+
+        let title = NSTextField(labelWithString: heading)
+        title.font = CardStyle.headingFont
+        title.textColor = CardStyle.accentText
+        let caption = NSTextField(labelWithString: detail)
+        caption.font = CardStyle.bodyFont
+        caption.textColor = CardStyle.secondaryText
+
+        let column = NSStackView(views: [title, caption])
+        column.orientation = .vertical
+        column.alignment = .leading
+        column.spacing = 4
+
+        let row = NSStackView(views: [badge, column])
+        row.orientation = .horizontal
+        row.alignment = .top
+        row.spacing = CardStyle.bodyInset - CardStyle.ruleInset - 18
+        row.edgeInsets = NSEdgeInsets(top: 0, left: CardStyle.ruleInset, bottom: 0, right: 20)
+        return row
     }
 
     private func button(for entry: SelectionToolbarEntry) -> NSButton {
@@ -506,23 +759,15 @@ final class SelectionRewritePopover: NSPanel {
         return button
     }
 
-    private func iconButton(_ symbol: String, action: Selector, label: String) -> NSButton {
-        let button = ToolbarDismissButton()
-        button.target = self
-        button.action = action
-        button.setAccessibilityLabel(label)
-        return button
-    }
-
     private func label(_ text: String, secondary: Bool, wrapping: Bool = false) -> NSTextField {
         let field = wrapping
             ? NSTextField(wrappingLabelWithString: text)
             : NSTextField(labelWithString: text)
-        field.font = .systemFont(ofSize: 13, weight: .regular)
-        field.textColor = secondary ? .secondaryLabelColor : .labelColor
+        field.font = CardStyle.bodyFont
+        field.textColor = secondary ? CardStyle.secondaryText : CardStyle.primaryText
         field.isSelectable = wrapping
         field.translatesAutoresizingMaskIntoConstraints = false
-        if wrapping { field.preferredMaxLayoutWidth = 380 }
+        if wrapping { field.preferredMaxLayoutWidth = Self.bodyWidth }
         field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         return field
     }
@@ -552,33 +797,12 @@ final class SelectionRewritePopover: NSPanel {
     }
 
     private var messageText: String?
-    /// The live instruction field while in `.asking`, so Run can read it.
-    private weak var askField: NSTextField?
-    private static let askFieldWidth: CGFloat = 300
-
     @objc private func askSubmitted(_ sender: NSTextField) { submitAsk(sender.stringValue) }
-    @objc private func askRunTapped() { submitAsk(askField?.stringValue ?? "") }
 
     private func submitAsk(_ instruction: String) {
         let trimmed = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         onAsk?(trimmed)
-    }
-
-    /// Put the instruction field up and give it the keyboard.
-    ///
-    /// This is the one place the panel deliberately takes key status, which ADR-143 established also
-    /// takes focus from the document — there is no way to type into a field without it. The caller
-    /// captures the frontmost app first and restores it before applying anything, and the result is
-    /// pasted rather than written through Accessibility, because by then the app has been through a
-    /// focus change and its Accessibility selection cannot be relied on.
-    func beginAsking() {
-        state = .asking
-        render()
-        represent()
-        makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-        if let askField { makeFirstResponder(askField) }
     }
 
     /// Pop the system menu for a group, at the pointer.
@@ -650,40 +874,99 @@ final class SelectionRewritePopover: NSPanel {
 
     /// Rebuild the row for this selection. Runs before every presentation, because the right actions
     /// for a URL are not the right actions for a paragraph.
+    /// Rebuild the header: one tab per group, plus the instruction field.
+    private func buildHeader(_ ranked: RankedActions) {
+        for view in header.arrangedSubviews {
+            header.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+        tabButtons.removeAll()
+
+        var names: [String] = []
+        for item in ranked.items {
+            if case let .group(group) = item, !names.contains(group.name) { names.append(group.name) }
+        }
+        if !ranked.overflow.isEmpty { names.append("More") }
+        // Singles have no group of their own, so they get one — otherwise the most relevant actions
+        // for this selection would be the only ones without a home in the header.
+        if ranked.items.contains(where: { if case .action = $0 { return true } else { return false } }) {
+            names.insert("Suggested", at: 0)
+        }
+        if activeTab == nil || !names.contains(activeTab!) { activeTab = names.first }
+
+        for name in names {
+            let tab = ToolbarTabButton(title: name)
+            tab.isSelectedTab = (name == activeTab)
+            tab.target = self
+            tab.action = #selector(tabTapped(_:))
+            tab.identifier = NSUserInterfaceItemIdentifier("tab." + name)
+            tabButtons[name] = tab
+            header.addArrangedSubview(tab)
+        }
+
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        header.addArrangedSubview(spacer)      // pushes the field to the trailing edge
+        header.addArrangedSubview(askFieldWell)
+    }
+
+    @objc private func tabTapped(_ sender: NSButton) {
+        guard let raw = sender.identifier?.rawValue else { return }
+        activeTab = String(raw.dropFirst("tab.".count))
+        RewriteLog.write("tab: \(activeTab ?? "?")")
+        if let ranked = lastRanked { setActions(ranked) }
+    }
+
+    /// The actions belonging to the active tab.
+    private func entriesForActiveTab(_ ranked: RankedActions) -> [SelectionToolbarEntry] {
+        switch activeTab {
+        case "Suggested":
+            return ranked.items.compactMap {
+                if case let .action(action) = $0 { return .action(id: action.id, title: action.title) }
+                return nil
+            }
+        case "More":
+            return ranked.overflow.map { .action(id: $0.id, title: $0.title) }
+        case let name?:
+            for case let .group(group) in ranked.items where group.name == name {
+                return group.actions.map { .action(id: $0.id, title: $0.title) }
+            }
+            return []
+        case nil:
+            return []
+        }
+    }
+
+    private var lastRanked: RankedActions?
+
     func setActions(_ ranked: RankedActions) {
         visibleItems = ranked.items
         overflowActions = ranked.overflow
 
-        var entries: [SelectionToolbarEntry] = ranked.items.map { item in
-            switch item {
-            case let .action(action):
-                return .action(id: action.id, title: action.title)
-            case let .group(group):
-                return .menu(
-                    id: "group.\(group.name)",
-                    title: group.name,
-                    items: group.actions.map { .action(id: $0.id, title: $0.title) }
-                )
-            }
-        }
-        if !ranked.overflow.isEmpty {
-            entries.append(.menu(
-                id: "group.more",
-                title: "More",
-                items: ranked.overflow.map { .action(id: $0.id, title: $0.title) }
-            ))
-        }
-        // Always last, always present. A catalogue answers the things people want repeatedly; this
-        // answers the rest, which is most of them — "make this sound less annoyed", "turn this into
-        // a bulleted agenda", "say this in Spanish but keep the greeting". Those are each wanted
-        // once, so there is nothing to save and nothing to name.
-        entries.append(.action(id: Self.askEntryID, title: "Ask…"))
-        state = .actions(entries)
+        lastRanked = ranked
+        buildHeader(ranked)
+        state = .actions(entriesForActiveTab(ranked))
         render()
     }
 
     func showWorking(_ title: String) {
         state = .working(title: title)
+        render()
+        represent()
+    }
+
+    /// Show a rewrite as a diff against what the user wrote.
+    func showDiff(title: String, original: String, replacement: String) {
+        let edits = RewriteDiff.edits(original: original, replacement: replacement)
+        state = .diff(title: title, edits: edits, replacement: replacement)
+        render()
+        represent()
+    }
+
+    /// Nothing to change. A distinct state rather than an empty diff, because a diff with no edits
+    /// is the user's own sentence shown back to them under a heading claiming it was improved.
+    func showClean(title: String, detail: String) {
+        state = .clean(title: title, detail: detail)
         render()
         represent()
     }
@@ -727,7 +1010,7 @@ final class SelectionRewritePopover: NSPanel {
     func present(aboveScreenRect rect: CGRect) {
         lastPresentedRect = rect
         layoutIfNeeded()
-        setContentSize(stack.fittingSize)
+        setContentSize(contentView?.fittingSize ?? frame.size)
         guard let screen = NSScreen.screens.first(where: { $0.frame.contains(appKitPoint(rect.origin)) }) ?? NSScreen.main else { return }
         let panelSize = frame.size
 
@@ -807,6 +1090,34 @@ final class SelectionRewriteController {
     /// llama context. The actor also serializes them, so the two can never run an eval at once.
     private let service: RewriteService
     private let popover = SelectionRewritePopover()
+
+    /// Show the card with canned content, for looking at it. See `GLIDE_CARD_PREVIEW` in
+    /// `AppDelegate`. Uses the real ranker and the real diff so what appears is the real card, not
+    /// a mock-up of one that could drift away from it.
+    func presentPreview() {
+        let original = "This sentance have a few mistake in it and is also quite a bit longer then it realy needs to be."
+        let replacement = "This sentence has a few mistakes in it, and it is longer than it needs to be."
+        let context = SelectionContext(text: original, bundleIdentifier: "com.apple.TextEdit")
+        let ranked = ranker.rank(
+            actionStore.allActions,
+            for: context,
+            preferences: actionStore.preferences,
+            usage: actionStore.usage
+        )
+        // Says out loud whether the bundled face actually resolved, so a silent fall back to the
+        // system font is visible in the log rather than only to a trained eye.
+        RewriteLog.write("preview fonts: body=\(CardStyle.bodyFont.fontName) tab=\(CardStyle.tabFont.fontName) heading=\(CardStyle.headingFont.fontName)")
+        popover.setStripSubtitle("Preview \u{2014} on-device rewrite")
+        popover.setActions(ranked)
+        popover.showDiff(title: "Corrected grammar and tightened phrasing", original: original, replacement: replacement)
+        guard let screen = NSScreen.main else { return }
+        let middle = CGRect(
+            x: screen.frame.midX - 200,
+            y: screen.frame.height / 2,
+            width: 400, height: 20
+        )
+        popover.present(aboveScreenRect: middle)
+    }
     /// The user's action arrangement: built-ins, their own, and what they pinned or turned off.
     /// Injected so the Settings pane and the toolbar are looking at the same store — otherwise an
     /// edit would not reach the toolbar until the next launch.
@@ -927,7 +1238,6 @@ final class SelectionRewriteController {
         }
         popover.onAction = { [weak self] action in self?.perform(action) }
         popover.onAcceptResult = { [weak self] text in self?.acceptPreviewedResult(text) }
-        popover.onAskRequested = { [weak self] in self?.beginAsking() }
         popover.onAsk = { [weak self] instruction in self?.runAsk(instruction) }
         popover.onCancel = { [weak self] in
             RewriteLog.write("action cancelled by the user")
@@ -1279,6 +1589,10 @@ final class SelectionRewriteController {
             return
         }
         pendingContext = actionContext
+        // Captured now, while the user's app is still frontmost: clicking the instruction field in
+        // the header takes key from it, and the result has to be pasted back into whatever had focus
+        // before that happened.
+        appBeforeAsking = NSWorkspace.shared.frontmostApplication
         popover.setActions(ranked)
 
         // A visible panel never follows the pointer.
@@ -1472,7 +1786,20 @@ final class SelectionRewriteController {
         // Deterministic transforms apply straight away — confirming "UPPERCASE" is friction with
         // nothing on the other side of it.
         if result.output == .replaceSelection, action.sideEffects == .sendsTextToModel {
-            popover.showResult(result.text, canReplace: true)
+            let original = pendingText ?? ""
+            if result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                == original.trimmingCharacters(in: .whitespacesAndNewlines) {
+                popover.showClean(
+                    title: "This text is well-written",
+                    detail: "To see a different version, choose another rewrite."
+                )
+                return
+            }
+            popover.showDiff(
+                title: action.id == SelectionRewritePopover.askEntryID ? "Your instruction" : action.title,
+                original: original,
+                replacement: result.text
+            )
             return
         }
 
@@ -1507,21 +1834,13 @@ final class SelectionRewriteController {
         }
     }
 
-    /// Hand the panel the keyboard so an instruction can be typed, remembering who had focus.
-    @MainActor
-    private func beginAsking() {
-        // Captured *before* the panel takes key, because afterwards the frontmost app is Glide.
-        appBeforeAsking = NSWorkspace.shared.frontmostApplication
-        // The result goes back by paste: the target app is about to lose and regain focus, and an
-        // Accessibility write across that is not something to rely on (ADR-133, ADR-143).
-        replacesByPasting = true
-        popover.beginAsking()
-    }
-
     /// Run a one-off instruction against the selection the panel was opened for.
     @MainActor
     private func runAsk(_ instruction: String) {
         guard let context = pendingContext, !isBusy else { return }
+        // Typing in the header took key from the document, so the result goes back by paste — an
+        // Accessibility write across a focus change is not something to rely on (ADR-133, ADR-143).
+        replacesByPasting = true
         RewriteLog.write("ask: \(RewriteLog.text(instruction)) on \(context.text.count) chars")
 
         // Give the document its focus back now, while the model runs — by the time there is a result

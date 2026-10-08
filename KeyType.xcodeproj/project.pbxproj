@@ -8,6 +8,10 @@
 
 /* Begin PBXBuildFile section */
 		20DD9A7F2FC95AB900BE1F8C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 20DD9A7A2FC95AB900BE1F8C /* Assets.xcassets */; };
+		82C1185AFC7E581B65527BD0 /* Inter-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 36BD10219A029AB32DAB54B3 /* Inter-Regular.ttf */; };
+		246C0485177CEC9C8E0592ED /* Inter-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = D96B477151265FFC56895287 /* Inter-Medium.ttf */; };
+		29B1A9CBD885E113BBB6A4FF /* Inter-SemiBold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 8B30BA133655B69B03138067 /* Inter-SemiBold.ttf */; };
+		3426DF2B4C5E9DC957ED1141 /* Inter-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = D19D2F7BCC4E84952414E1FB /* Inter-OFL.txt */; };
 		20DD9A822FC95AB900BE1F8C /* KeyTypeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20DD9A7D2FC95AB900BE1F8C /* KeyTypeApp.swift */; };
 		20DD9A852FC95ABB00BE1F8C /* KeyTypeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20DD9A832FC95ABB00BE1F8C /* KeyTypeTests.swift */; };
 		20DD9A892FC95ABD00BE1F8C /* KeyTypeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20DD9A862FC95ABD00BE1F8C /* KeyTypeUITests.swift */; };
@@ -102,6 +106,10 @@
 		20DD9A5D2FC95AA900BE1F8C /* KeyTypeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = KeyTypeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		20DD9A672FC95AA900BE1F8C /* KeyTypeUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = KeyTypeUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		20DD9A7A2FC95AB900BE1F8C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		36BD10219A029AB32DAB54B3 /* Inter-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Inter-Regular.ttf"; sourceTree = "<group>"; };
+		D96B477151265FFC56895287 /* Inter-Medium.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Inter-Medium.ttf"; sourceTree = "<group>"; };
+		8B30BA133655B69B03138067 /* Inter-SemiBold.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Inter-SemiBold.ttf"; sourceTree = "<group>"; };
+		D19D2F7BCC4E84952414E1FB /* Inter-OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Inter-OFL.txt"; sourceTree = "<group>"; };
 		20DD9A7D2FC95AB900BE1F8C /* KeyTypeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyTypeApp.swift; sourceTree = "<group>"; };
 		20DD9A832FC95ABB00BE1F8C /* KeyTypeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyTypeTests.swift; sourceTree = "<group>"; };
 		20DD9A862FC95ABD00BE1F8C /* KeyTypeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyTypeUITests.swift; sourceTree = "<group>"; };
@@ -241,8 +249,20 @@
 				4B5450012FC9600000000220 /* Info.plist */,
 				4B5450012FC96000000000D0 /* Glide.icon */,
 				20DD9A7A2FC95AB900BE1F8C /* Assets.xcassets */,
+				851BFE33E084AC8BFBDD1104 /* Resources */,
 			);
 			path = KeyType;
+			sourceTree = "<group>";
+		};
+		851BFE33E084AC8BFBDD1104 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				36BD10219A029AB32DAB54B3 /* Inter-Regular.ttf */,
+				D96B477151265FFC56895287 /* Inter-Medium.ttf */,
+				8B30BA133655B69B03138067 /* Inter-SemiBold.ttf */,
+				D19D2F7BCC4E84952414E1FB /* Inter-OFL.txt */,
+			);
+			path = Resources;
 			sourceTree = "<group>";
 		};
 		20DD9A842FC95ABB00BE1F8C /* KeyTypeTests */ = {
@@ -640,6 +660,10 @@
 			files = (
 				20DD9A7F2FC95AB900BE1F8C /* Assets.xcassets in Resources */,
 				4B5450012FC96000000000D1 /* Glide.icon in Resources */,
+				82C1185AFC7E581B65527BD0 /* Inter-Regular.ttf in Resources */,
+				246C0485177CEC9C8E0592ED /* Inter-Medium.ttf in Resources */,
+				29B1A9CBD885E113BBB6A4FF /* Inter-SemiBold.ttf in Resources */,
+				3426DF2B4C5E9DC957ED1141 /* Inter-OFL.txt in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -890,7 +914,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.44;
+				MARKETING_VERSION = 0.45;
 				PRODUCT_BUNDLE_IDENTIFIER = app.glide;
 				PRODUCT_NAME = Glide;
 				REGISTER_APP_GROUPS = YES;
@@ -924,7 +948,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.44;
+				MARKETING_VERSION = 0.45;
 				PRODUCT_BUNDLE_IDENTIFIER = app.glide;
 				PRODUCT_NAME = Glide;
 				REGISTER_APP_GROUPS = YES;

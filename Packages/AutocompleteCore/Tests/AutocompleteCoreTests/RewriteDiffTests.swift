@@ -63,3 +63,57 @@ final class RewriteDiffTests: XCTestCase {
         XCTAssertEqual(diff.changedCharacterCount, "doesn't ".count)
     }
 }
+
+// MARK: - Two-sided edits
+
+extension RewriteDiffTests {
+    private func rendered(_ edits: [RewriteDiff.Edit]) -> String {
+        edits.map { edit in
+            switch edit {
+            case let .kept(text): return text
+            case let .inserted(text): return "{+\(text)+}"
+            case let .removed(text): return "{-\(text)-}"
+            }
+        }.joined()
+    }
+
+    func testEditsShowBothSidesOfAWordSwap() {
+        let edits = RewriteDiff.edits(original: "we can hear back on Scott",
+                                      replacement: "we can hear back from Scott")
+        XCTAssertEqual(rendered(edits), "we can hear back {-on -}{+from +}Scott")
+    }
+
+    func testEditsMarkPureInsertion() {
+        let edits = RewriteDiff.edits(original: "they going to send it",
+                                      replacement: "they are going to send it")
+        XCTAssertEqual(rendered(edits), "they {+are +}going to send it")
+    }
+
+    func testEditsMarkPureDeletion() {
+        let edits = RewriteDiff.edits(original: "we can just simply ship it",
+                                      replacement: "we can ship it")
+        // Adjacent removals merge into one run, which is the point of the merging step — two
+        // separately-struck words read as two separate edits.
+        XCTAssertEqual(rendered(edits), "we can {-just simply -}ship it")
+    }
+
+    func testIdenticalTextIsAllKept() {
+        let edits = RewriteDiff.edits(original: "no change here", replacement: "no change here")
+        XCTAssertEqual(edits, [.kept("no change here")])
+    }
+
+    /// Every kept and inserted run, concatenated, must reproduce the replacement exactly — otherwise
+    /// the card is showing text that differs from what Replace would insert.
+    func testKeptAndInsertedReproduceTheReplacement() {
+        let original = "Worst case, if we cant access the APIs we can use automation."
+        let replacement = "Worst case, if we can't access the APIs, we can use automation to extract it."
+        let edits = RewriteDiff.edits(original: original, replacement: replacement)
+        let reconstructed = edits.compactMap { edit -> String? in
+            switch edit {
+            case let .kept(text), let .inserted(text): return text
+            case .removed: return nil
+            }
+        }.joined()
+        XCTAssertEqual(reconstructed, replacement)
+    }
+}

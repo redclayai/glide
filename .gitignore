@@ -54,3 +54,6 @@ Packages/KeyTypeBench/Sources/KeyTypeBench/Datasets/private/
 
 # Local scratch
 tmp/
+
+# Coverage artefact dropped by a plain `swift test` run.
+*.profraw

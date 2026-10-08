@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>ATSApplicationFontsPath</key>
+	<string>.</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleExecutable</key>
@@ -22,20 +24,10 @@
 	<string>public.app-category.productivity</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
-	<!-- Background menu-bar / agent app: no dock icon (see ADR-005). -->
 	<key>LSUIElement</key>
 	<true/>
-	<!-- Shown in Finder's Get Info and the About panel. Names upstream as well as Red Clay: Glide is
-	     an MIT fork of KeyType, and the copyright field is the natural place to say so in the binary
-	     itself, not only in the LICENSE that ships alongside it. -->
 	<key>NSHumanReadableCopyright</key>
 	<string>© 2026 Red Clay AI, Inc. Portions © 2026 Xi Nai Lai (KeyType). MIT licensed.</string>
-	<!-- Sparkle in-app updates (see ADR-051, ADR-114). The feed is served by GitHub Pages out of
-	     docs/ on the public repo. The EdDSA public key matches the private key in this machine's
-	     login keychain — shared with Millie, because Sparkle stores exactly one key per keychain
-	     and generating a second would overwrite the first. The key that shipped before this was
-	     upstream KeyType's, whose private half we do not hold: no update could ever have been
-	     signed for it. -->
 	<key>SUFeedURL</key>
 	<string>https://redclayai.github.io/glide/appcast.xml</string>
 	<key>SUPublicEDKey</key>

@@ -4438,3 +4438,81 @@ text. Both are now closed:
   reasoning that it is larger and not named "Base". Measured, it has no chat template and returns
   the input verbatim for instruction-shaped work. It is not an upgrade. The recommendation was made
   from the filename; the measurement took four minutes and should have come first.
+
+## ADR-152 — The rewrite panel is a card, not a row
+
+- Date: 2026-10-08
+- Status: accepted
+- Context: the panel was one horizontal `NSStackView` that was torn down and rebuilt for every
+  state. Three things followed from that shape and all three were reported as bugs. It changed
+  width on each transition, so it appeared to jump (ADR-144). The instruction field only existed in
+  an `.asking` state reached through an "Ask…" button, so a feature the user had asked for was
+  invisible unless you remembered the button. And a result was plain replacement text, which asks
+  the reader to diff two paragraphs in their head to see what the model actually did.
+- Decision: a vertical card. A `header` that is built once per selection and then stays put — one
+  `ToolbarTabButton` per action group, a spacer, the instruction field, the dismiss button — over a
+  `stack` body that changes with the state. The header is what stops the panel moving: it fixes the
+  width, so the body can grow and shrink underneath it without the anchor shifting.
+- The instruction field is always visible, with the placeholder "Enter your own…", and the
+  `.asking` state is gone. A field you can see is a field you remember you have; a field behind a
+  button is a feature most people never find.
+- A result is shown as a diff, not as replacement text: `RewriteDiff.edits(original:replacement:)`
+  returns `.kept` / `.inserted` / `.removed` runs, and `RewriteDiffRendering.attributed` draws
+  insertions in green semibold and removals struck through in red. A 3pt accent rule down the left
+  edge is what makes the block read as a proposal rather than as more of the user's own document.
+- Consequence worth noting: the header owns the dismiss button now, so no body state may add its
+  own — two dismiss buttons appeared in the first pass. And because `buildHeader` re-adds the same
+  `askField` on every rebuild, everything that installs a constraint on it had to move into `init`
+  or the width constraints accumulate one per selection.
+
+## ADR-153 — Installing the dev build must not replace the bundle directory
+
+- Date: 2026-10-08
+- Status: accepted
+- Context: installing a local build with `rm -rf /Applications/Glide.app && cp -R …` revoked
+  Accessibility and Input Monitoring. Glide then could not read a selection or see an accept key,
+  and the first-run "Enable Glide" window came back — mid-verification, with no way to recover it
+  from this side, because re-granting needs the user's own authentication.
+- The signature was not the cause and should not be blamed for it: identifier `app.glide`, team
+  `3RPG92BQ9C`, `Apple Development: Daniel Baute` before and after. The privacy database keyed the
+  grant to the bundle directory, and deleting it orphaned the entry.
+- Decision: `Scripts/install-debug.sh`, which quits the app and then `rsync -a --delete`s into the
+  existing bundle. The directory is never removed, so the grants survive. Use it rather than an
+  ad-hoc copy.
+
+## ADR-154 — Matching a reference by measuring it, and the colour space that hid the mismatch
+
+- Date: 2026-10-08
+- Status: accepted
+- Context: "make the UI exactly like Grammarly, same font and UI". Working from a remembered
+  impression of a screenshot produces something that looks adjacent to the reference and matches it
+  nowhere. The reference images were still in the session transcript, so they were extracted and
+  read as pixels: a sampler and a run-length scanner over the two frames gave every colour and
+  every edge-to-edge distance in the card.
+- Decision: the measurements live in `CardStyle` and nothing else names a colour or a point size.
+  That is what makes the card checkable — a disagreement with the reference is a disagreement with
+  a constant. Each value is sourced: the palette and the metrics were read off the reference, and
+  the two diff tints are marked derived, because the only frame showing a diff had the body blurred
+  behind a paywall and the hues survived where the values did not.
+- Verified the same way it was specified. `GLIDE_CARD_PREVIEW=1` presents the card with canned
+  content and no Accessibility, no selection and no model; the rendered card was then scanned with
+  the same tools as the reference and the numbers compared. Three disagreements came out of that
+  comparison and none of them were visible by eye: a 37pt tab gap against the reference's 31, the
+  accent rule, and the heading colour.
+- The lesson worth keeping is the colour one. `NSColor(srgbRed:)` for `#44A295` measured back as
+  `#599F95` — 21 points adrift in red. Colour management: the value is converted on its way to the
+  display, while the browser the reference came from writes its colours into the display's buffer
+  unconverted. Two things made this hard to see. Greys are unaffected, so `#2E2E2E` matched from
+  the first attempt and suggested the palette was fine. And `NSColor(deviceRed:)`, the obvious
+  "unmanaged" spelling, is managed just the same — it was tried, changed nothing, and would have
+  been recorded as a fix had the card not been re-measured afterwards. Declaring the components to
+  be in `NSScreen.colorSpace` is what suppresses the conversion, and the rule then measured
+  `#44A295` exactly.
+- Typeface: the reference's product UI serves Inter; the Glyph and Matter faces on its marketing
+  site are proprietary and are not used in the product. Inter is SIL Open Font Licensed, so three
+  static weights ship in `KeyType/Resources` and are registered by `ATSApplicationFontsPath`. The
+  accessor falls back to the system font, and the preview logs which face actually resolved — a
+  silent fall back to San Francisco is exactly the kind of failure this project keeps finding.
+- Also: `ToolbarTabButton` had to return its label's width as its intrinsic size. `NSButton`'s own
+  intrinsic width adds about 3.5pt of cell padding a side, which is the whole of the 37-against-31
+  gap error, and the reference's spacing is specified label-edge to label-edge.

@@ -2,26 +2,23 @@
 //  ToolbarPillButton.swift
 //  CompletionUI
 //
-//  The items in the selection toolbar.
+//  The controls inside the rewrite card.
 //
-//  These were raised white pills with SF Symbols, sitting inside a white capsule. That reads as a
-//  web component, not a system control: Apple's text-selection callout — the one that appears over a
-//  selection on both iOS and macOS — is a single capsule of *flat* text items divided by hairlines,
-//  with no per-item background at rest and no iconography. Nothing inside it competes with the
-//  surface for depth; the material does all the lifting. So these are flat now, and the shape,
-//  blur and shadow belong to the panel alone.
+//  These are `NSButton` subclasses rather than SwiftUI, because the card is an AppKit panel whose
+//  click handling was hard-won: a borderless non-activating panel only delivers clicks to its
+//  controls when it can become key, and `acceptsFirstMouse` has to be overridden for the click that
+//  arrives while another app is frontmost (ADR-119). Rebuilding that in SwiftUI to gain styling
+//  would risk the one behaviour that took several attempts to get right, so these keep the working
+//  control and restyle its layer.
 //
-//  An `NSButton` subclass rather than SwiftUI, because the toolbar is an AppKit panel whose click
-//  handling was hard-won: a borderless non-activating panel only delivers clicks to its controls
-//  when it can become key, and `acceptsFirstMouse` has to be overridden for the click that arrives
-//  while another app is frontmost. Rebuilding that in SwiftUI to gain styling would risk the one
-//  behaviour that took several attempts to get right, so this keeps the working control and restyles
-//  its layer.
+//  Every colour, size and weight comes from `CardStyle`, which holds the measurements. Nothing here
+//  should name a colour or a point size directly.
 //
 
 import AppKit
+import AutocompleteCore
 
-/// One thing the selection toolbar can offer: a button, or a menu of buttons.
+/// One thing the card can offer: a button, or a menu of buttons.
 ///
 /// A plain description, deliberately free of `SelectionAction` — `CompletionUI` does not depend on
 /// the action engine, and the panel translates between them.
@@ -42,44 +39,41 @@ public enum SelectionToolbarEntry {
     }
 }
 
-/// What the panel is showing.
+/// What the card is showing.
 public enum SelectionToolbarState {
     case actions([SelectionToolbarEntry])
-    /// A free-text instruction being typed for this selection only — the one thing a catalogue of
-    /// saved actions cannot cover, because most of what someone wants to do to a sentence they will
-    /// want exactly once.
-    case asking
+    /// A finished rewrite, shown as a diff against what the user wrote.
+    case diff(title: String, edits: [RewriteDiff.Edit], replacement: String)
     case working(title: String)
     case result(text: String, canReplace: Bool)
     case message(String)
+    /// Nothing to change — the badge-and-heading state, not an error.
+    case clean(title: String, detail: String)
 }
 
-/// A flat text item in the selection toolbar. No fill at rest; a quiet rounded highlight on hover,
-/// inset from the capsule's edges the way a menu item's highlight is inset from its menu.
+/// A text item in the card's body. Flat by default; `isPrimary` fills it with the accent so the one
+/// action that applies the rewrite reads as the one action.
 public final class ToolbarPillButton: NSButton {
-    /// The click that arrives while another application is frontmost. Without this the first click is
-    /// spent activating, the user sees nothing happen, and the panel is usually gone by the second.
+    /// The click that arrives while another application is frontmost. Without this the first click
+    /// is spent activating, the user sees nothing happen, and the card is usually gone by the second.
     public override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     private var isHovering = false
     private var isPressed = false
     private var trackingArea: NSTrackingArea?
 
-    /// Menu metrics. `NSFont.menuFont(ofSize: 0)` is 13pt+, and matching it is most of what makes a
-    /// floating control feel like it came with the system.
-    public static let itemHeight: CGFloat = 26
-    private static let horizontalPadding: CGFloat = 11
+    public var isPrimary = false { didSet { applyStyle() } }
+
+    public static let itemHeight: CGFloat = 28
+    private static let horizontalPadding: CGFloat = 12
 
     /// `symbolName` is accepted and ignored. The callers still name a symbol for each action, and
     /// keeping the parameter means this stayed a one-file change — but no symbol is drawn. A label
-    /// that already says "Polish" is not clarified by a wand beside it, and the symbol that had been
-    /// standing in for "Grammar" was `checkmark.gobackward`, which means *revert*.
+    /// that already says "Polish" is not clarified by a wand beside it.
     public init(title: String, symbolName: String) {
         super.init(frame: .zero)
-
         self.title = title
         imagePosition = .noImage
-        font = .menuFont(ofSize: 0)
         isBordered = false
         bezelStyle = .accessoryBarAction
         wantsLayer = true
@@ -100,29 +94,26 @@ public final class ToolbarPillButton: NSButton {
 
     private func applyStyle() {
         guard let layer else { return }
-        let isDark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-
-        // Inset from the panel's own rounding so the highlight sits *within* the capsule rather than
-        // fighting its edge — the same relationship a menu item's highlight has to its menu.
-        layer.cornerRadius = 7
+        layer.cornerRadius = Self.itemHeight / 2
         layer.cornerCurve = .continuous
         layer.borderWidth = 0
         layer.shadowOpacity = 0
 
-        contentTintColor = .labelColor
-        attributedTitle = NSAttributedString(
-            string: title,
-            attributes: [
-                .font: font ?? NSFont.menuFont(ofSize: 0),
-                .foregroundColor: isEnabled ? NSColor.labelColor : NSColor.disabledControlTextColor,
-            ]
-        )
+        let text: NSColor = isPrimary ? .white : (isEnabled ? CardStyle.primaryText : CardStyle.secondaryText)
+        attributedTitle = NSAttributedString(string: title, attributes: [
+            .font: CardStyle.font(14, isPrimary ? .semibold : .medium),
+            .foregroundColor: text,
+        ])
 
         let fill: NSColor
-        if isPressed {
-            fill = NSColor(white: isDark ? 1 : 0, alpha: isDark ? 0.16 : 0.11)
+        if isPrimary {
+            fill = isPressed
+                ? CardStyle.badgeFill
+                : (isHovering ? CardStyle.accentText : CardStyle.accentRule)
+        } else if isPressed {
+            fill = NSColor(white: 0, alpha: 0.11)
         } else if isHovering {
-            fill = NSColor(white: isDark ? 1 : 0, alpha: isDark ? 0.10 : 0.06)
+            fill = NSColor(white: 0, alpha: 0.06)
         } else {
             fill = .clear
         }
@@ -169,15 +160,9 @@ public final class ToolbarPillButton: NSButton {
         isPressed = false
         applyStyle()
     }
-
-    public override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        applyStyle()
-    }
 }
 
-/// The dismiss control. Square, symbol-only, and styled exactly like the text items otherwise — it
-/// is one more item in the same row, not a decoration bolted to the end.
+/// The dismiss control, which lives in the dark strip and is therefore light-on-dark.
 public final class ToolbarDismissButton: NSButton {
     public override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
@@ -185,12 +170,15 @@ public final class ToolbarDismissButton: NSButton {
     private var isPressed = false
     private var trackingArea: NSTrackingArea?
 
+    /// Set when the button sits on the card rather than on the dark strip.
+    public var isOnLightSurface = false { didSet { applyStyle() } }
+
     public init() {
         super.init(frame: .zero)
         image = NSImage(
             systemSymbolName: "xmark",
             accessibilityDescription: "Dismiss"
-        )?.withSymbolConfiguration(.init(pointSize: 10, weight: .medium))
+        )?.withSymbolConfiguration(.init(pointSize: 10, weight: .semibold))
         imagePosition = .imageOnly
         isBordered = false
         wantsLayer = true
@@ -199,8 +187,8 @@ public final class ToolbarDismissButton: NSButton {
         applyStyle()
         translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            widthAnchor.constraint(equalToConstant: ToolbarPillButton.itemHeight),
-            heightAnchor.constraint(equalToConstant: ToolbarPillButton.itemHeight),
+            widthAnchor.constraint(equalToConstant: 22),
+            heightAnchor.constraint(equalToConstant: 22),
         ])
     }
 
@@ -209,19 +197,21 @@ public final class ToolbarDismissButton: NSButton {
 
     private func applyStyle() {
         guard let layer else { return }
-        let isDark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        layer.cornerRadius = 7
+        layer.cornerRadius = 11
         layer.cornerCurve = .continuous
+        let tintWhite: CGFloat = isOnLightSurface ? 0 : 1
         if isPressed {
-            layer.backgroundColor = NSColor(white: isDark ? 1 : 0, alpha: isDark ? 0.16 : 0.11).cgColor
+            layer.backgroundColor = NSColor(white: tintWhite, alpha: 0.22).cgColor
         } else if isHovering {
-            layer.backgroundColor = NSColor(white: isDark ? 1 : 0, alpha: isDark ? 0.10 : 0.06).cgColor
+            layer.backgroundColor = NSColor(white: tintWhite, alpha: 0.13).cgColor
         } else {
             layer.backgroundColor = NSColor.clear.cgColor
         }
-        // Quieter than the actions at rest — it is a way out, not a third thing to do — and resolves
-        // to full label colour once the pointer is on it.
-        contentTintColor = isHovering ? .labelColor : .secondaryLabelColor
+        if isOnLightSurface {
+            contentTintColor = isHovering ? CardStyle.primaryText : CardStyle.secondaryText
+        } else {
+            contentTintColor = isHovering ? .white : NSColor(white: 1, alpha: 0.65)
+        }
     }
 
     public override func updateTrackingAreas() {
@@ -242,9 +232,105 @@ public final class ToolbarDismissButton: NSButton {
         isPressed = false
         applyStyle()
     }
+}
 
-    public override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
+/// A header tab: flat text with no chrome at all, the selected one carrying the weight and the
+/// colour. A segmented control, a pill or an underline would each put a second edge inside a card
+/// that already has one, which is exactly what the reference avoids.
+public final class ToolbarTabButton: NSButton {
+    public override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    private var isHovering = false
+    private var trackingArea: NSTrackingArea?
+
+    public var isSelectedTab = false { didSet { applyStyle() } }
+
+    public init(title: String) {
+        super.init(frame: .zero)
+        self.title = title
+        imagePosition = .noImage
+        isBordered = false
+        wantsLayer = true
         applyStyle()
+    }
+
+    @available(*, unavailable)
+    public required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    /// Exactly the label's width.
+    ///
+    /// `super.intrinsicContentSize` adds the cell's own padding — about 3.5pt a side — which turned
+    /// a 30pt stack spacing into a measured 37pt gap and pushed the first tab 3pt further in than
+    /// the reference. The gap is specified label-edge to label-edge, so the button has to be the
+    /// label and nothing else.
+    public override var intrinsicContentSize: NSSize {
+        NSSize(width: ceil(attributedTitle.size().width), height: CardStyle.tabRowHeight)
+    }
+
+    private func applyStyle() {
+        layer?.backgroundColor = NSColor.clear.cgColor
+        let colour: NSColor
+        if isSelectedTab {
+            colour = CardStyle.primaryText
+        } else {
+            colour = isHovering ? CardStyle.primaryText : CardStyle.secondaryText
+        }
+        attributedTitle = NSAttributedString(string: title, attributes: [
+            .font: isSelectedTab ? CardStyle.tabFont : CardStyle.tabFontUnselected,
+            .foregroundColor: colour,
+        ])
+    }
+
+    public override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea { removeTrackingArea(trackingArea) }
+        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways], owner: self)
+        addTrackingArea(area)
+        trackingArea = area
+    }
+
+    public override func mouseEntered(with event: NSEvent) { isHovering = true; applyStyle() }
+    public override func mouseExited(with event: NSEvent) { isHovering = false; applyStyle() }
+}
+
+/// Renders a rewrite as what changed: insertions tinted and highlighted, removals struck through.
+///
+/// The card shows the result *after* the original has scrolled out of mind, so a plain paragraph of
+/// corrected text asks the reader to diff two sentences from memory — the work the feature exists to
+/// save.
+public enum RewriteDiffRendering {
+    public static func attributed(_ edits: [RewriteDiff.Edit], font: NSFont) -> NSAttributedString {
+        let result = NSMutableAttributedString()
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineSpacing = 4
+
+        for edit in edits {
+            switch edit {
+            case let .kept(text):
+                result.append(NSAttributedString(string: text, attributes: [
+                    .font: font,
+                    .foregroundColor: CardStyle.primaryText,
+                ]))
+            case let .inserted(text):
+                result.append(NSAttributedString(string: text, attributes: [
+                    .font: CardStyle.font(font.pointSize, .semibold),
+                    .foregroundColor: CardStyle.insertedText,
+                    .backgroundColor: CardStyle.insertedFill,
+                ]))
+            case let .removed(text):
+                result.append(NSAttributedString(string: text, attributes: [
+                    .font: font,
+                    .foregroundColor: CardStyle.removedText,
+                    .backgroundColor: CardStyle.removedFill,
+                    .strikethroughStyle: NSUnderlineStyle.single.rawValue,
+                    .strikethroughColor: CardStyle.removedText,
+                ]))
+            }
+        }
+        result.addAttribute(
+            .paragraphStyle, value: paragraph,
+            range: NSRange(location: 0, length: result.length)
+        )
+        return result
     }
 }

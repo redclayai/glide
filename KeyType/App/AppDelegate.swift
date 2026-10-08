@@ -302,6 +302,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // dock icon; making the activation policy explicit guards against alternate launch paths.
         NSApp.setActivationPolicy(.accessory)
 
+        // A way to look at the rewrite card without Accessibility, a selection, or a model.
+        //
+        // The card is the part of Glide that is judged by eye, and every other route to it runs
+        // through the Accessibility API — so when that permission is missing, or a model is still
+        // downloading, the one thing that cannot be checked is the thing most likely to be wrong.
+        // `GLIDE_CARD_PREVIEW=1` presents it with canned content, centred, and nothing else runs.
+        if ProcessInfo.processInfo.environment["GLIDE_CARD_PREVIEW"] == "1" {
+            DispatchQueue.main.async { [weak self] in self?.selectionRewrite.presentPreview() }
+            return
+        }
+
         AppBundleWebAppClassifier.shared.primeRunningApplications()
         developerOverrides.setEnabled(settings.developerOverrideTuningEnabled)
         permissions.startMonitoring()

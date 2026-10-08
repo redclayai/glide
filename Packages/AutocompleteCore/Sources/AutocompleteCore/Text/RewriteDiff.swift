@@ -68,6 +68,101 @@ public struct RewriteDiff: Equatable {
         return RewriteDiff(segments: segments)
     }
 
+    // MARK: - Two-sided edits
+
+    /// One step of a rewrite, from the reader's point of view.
+    public enum Edit: Equatable {
+        case kept(String)
+        case inserted(String)
+        case removed(String)
+
+        public var text: String {
+            switch self {
+            case let .kept(text), let .inserted(text), let .removed(text): return text
+            }
+        }
+    }
+
+    /// The rewrite as kept / inserted / removed runs, in reading order.
+    ///
+    /// `between(original:replacement:)` marks only what is *new*, which is all the inline capsule
+    /// needs — it is offering a replacement, and the words that went away are still on screen behind
+    /// it. A result card has no such luxury: the original is gone by the time it is read, so "we can
+    /// hear back ~~on~~ from Scott" has to show both halves or the reader cannot tell what the model
+    /// actually did.
+    ///
+    /// Removals are emitted immediately before the insertion that displaced them, which is where a
+    /// reader expects to find them.
+    public static func edits(original: String, replacement: String) -> [Edit] {
+        let originalWords = tokenize(original)
+        let replacementWords = tokenize(replacement)
+        let pairs = alignedIndices(
+            originalWords.map(\.normalized),
+            replacementWords.map(\.normalized)
+        )
+
+        var edits: [Edit] = []
+        func append(_ edit: Edit) {
+            // Merge adjacent runs of the same kind so the renderer emits as few spans as possible.
+            switch (edits.last, edit) {
+            case let (.kept(previous)?, .kept(next)): edits[edits.count - 1] = .kept(previous + next)
+            case let (.inserted(previous)?, .inserted(next)): edits[edits.count - 1] = .inserted(previous + next)
+            case let (.removed(previous)?, .removed(next)): edits[edits.count - 1] = .removed(previous + next)
+            default: edits.append(edit)
+            }
+        }
+
+        var originalIndex = 0
+        var replacementIndex = 0
+        for (keptOriginal, keptReplacement) in pairs {
+            while originalIndex < keptOriginal {
+                append(.removed(originalWords[originalIndex].raw))
+                originalIndex += 1
+            }
+            while replacementIndex < keptReplacement {
+                append(.inserted(replacementWords[replacementIndex].raw))
+                replacementIndex += 1
+            }
+            append(.kept(replacementWords[keptReplacement].raw))
+            originalIndex = keptOriginal + 1
+            replacementIndex = keptReplacement + 1
+        }
+        while originalIndex < originalWords.count {
+            append(.removed(originalWords[originalIndex].raw))
+            originalIndex += 1
+        }
+        while replacementIndex < replacementWords.count {
+            append(.inserted(replacementWords[replacementIndex].raw))
+            replacementIndex += 1
+        }
+        return edits
+    }
+
+    /// Index pairs `(inLHS, inRHS)` of the longest common subsequence, in order.
+    static func alignedIndices(_ lhs: [String], _ rhs: [String]) -> [(Int, Int)] {
+        guard !lhs.isEmpty, !rhs.isEmpty else { return [] }
+        var table = [[Int]](repeating: [Int](repeating: 0, count: rhs.count + 1), count: lhs.count + 1)
+        for i in 1...lhs.count {
+            for j in 1...rhs.count {
+                table[i][j] = lhs[i - 1] == rhs[j - 1]
+                    ? table[i - 1][j - 1] + 1
+                    : max(table[i - 1][j], table[i][j - 1])
+            }
+        }
+        var pairs: [(Int, Int)] = []
+        var i = lhs.count, j = rhs.count
+        while i > 0, j > 0 {
+            if lhs[i - 1] == rhs[j - 1] {
+                pairs.append((i - 1, j - 1)); i -= 1; j -= 1
+            } else if table[i - 1][j] >= table[i][j - 1] {
+                i -= 1
+            } else {
+                j -= 1
+            }
+        }
+        return pairs.reversed()
+    }
+
     // MARK: - Internals
 
     struct Word: Equatable {
