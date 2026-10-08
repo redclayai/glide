@@ -45,6 +45,10 @@ public enum SelectionToolbarEntry {
 /// What the panel is showing.
 public enum SelectionToolbarState {
     case actions([SelectionToolbarEntry])
+    /// A free-text instruction being typed for this selection only — the one thing a catalogue of
+    /// saved actions cannot cover, because most of what someone wants to do to a sentence they will
+    /// want exactly once.
+    case asking
     case working(title: String)
     case result(text: String, canReplace: Bool)
     case message(String)

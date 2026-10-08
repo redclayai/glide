@@ -312,6 +312,10 @@ final class SelectionRewritePopover: NSPanel {
     var onAcceptResult: ((String) -> Void)?
     /// The user cancelled while an action was running.
     var onCancel: (() -> Void)?
+    /// A one-off instruction typed into the panel.
+    var onAsk: ((String) -> Void)?
+    /// The user chose "Ask…" and wants the instruction field.
+    var onAskRequested: (() -> Void)?
 
     /// One SwiftUI root for every state. Replaces an `NSStackView` of `NSButton`s, hairline `NSBox`
     /// dividers, a spinner and a hand-rolled result surface — see `SelectionToolbarView` for what the
@@ -333,6 +337,15 @@ final class SelectionRewritePopover: NSPanel {
     /// True while one of this panel's menus is open. `Menu` is a native SwiftUI menu now, so this is
     /// tracked by the panel losing key rather than by bracketing a modal `popUp` call.
     private(set) var isMenuOpen = false
+
+    /// True while the panel is holding something the user is part-way through — an instruction being
+    /// typed, or a result waiting on a decision. Neither should time out underneath them.
+    var isInteracting: Bool {
+        switch state {
+        case .asking, .result, .working: return true
+        case .actions, .message: return false
+        }
+    }
 
     /// Whether the pointer is over the panel. Checked against the frame rather than with a tracking
     /// area, because the hosting view's own SwiftUI hover handling already owns the inside.
@@ -400,6 +413,24 @@ final class SelectionRewritePopover: NSPanel {
             for entry in entries {
                 stack.addArrangedSubview(button(for: entry))
             }
+            stack.addArrangedSubview(iconButton("xmark", action: #selector(closeTapped), label: "Dismiss"))
+
+        case .asking:
+            let field = NSTextField(string: "")
+            field.placeholderString = "Tell Glide what to do with this…"
+            field.font = .systemFont(ofSize: 13)
+            field.bezelStyle = .roundedBezel
+            field.focusRingType = .none
+            field.target = self
+            field.action = #selector(askSubmitted(_:))   // fires on Return
+            field.translatesAutoresizingMaskIntoConstraints = false
+            field.widthAnchor.constraint(equalToConstant: Self.askFieldWidth).isActive = true
+            askField = field
+            stack.addArrangedSubview(field)
+
+            let run = textButton("Run", action: #selector(askRunTapped))
+            run.keyEquivalent = "\r"
+            stack.addArrangedSubview(run)
             stack.addArrangedSubview(iconButton("xmark", action: #selector(closeTapped), label: "Dismiss"))
 
         case let .working(title):
@@ -507,6 +538,34 @@ final class SelectionRewritePopover: NSPanel {
     }
 
     private var messageText: String?
+    /// The live instruction field while in `.asking`, so Run can read it.
+    private weak var askField: NSTextField?
+    private static let askFieldWidth: CGFloat = 300
+
+    @objc private func askSubmitted(_ sender: NSTextField) { submitAsk(sender.stringValue) }
+    @objc private func askRunTapped() { submitAsk(askField?.stringValue ?? "") }
+
+    private func submitAsk(_ instruction: String) {
+        let trimmed = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        onAsk?(trimmed)
+    }
+
+    /// Put the instruction field up and give it the keyboard.
+    ///
+    /// This is the one place the panel deliberately takes key status, which ADR-143 established also
+    /// takes focus from the document — there is no way to type into a field without it. The caller
+    /// captures the frontmost app first and restores it before applying anything, and the result is
+    /// pasted rather than written through Accessibility, because by then the app has been through a
+    /// focus change and its Accessibility selection cannot be relied on.
+    func beginAsking() {
+        state = .asking
+        render()
+        represent()
+        makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        if let askField { makeFirstResponder(askField) }
+    }
 
     /// Pop the system menu for a group, at the pointer.
     ///
@@ -556,7 +615,14 @@ final class SelectionRewritePopover: NSPanel {
     /// Maps a toolbar id back to the action it stands for. Ids rather than indices, because a menu
     /// item and a top-level button now come back through the same callback and an index would have to
     /// encode which list it came from.
+    static let askEntryID = "glide.ask"
+
     private func select(_ id: String) {
+        if id == Self.askEntryID {
+            RewriteLog.write("ask: field opened")
+            onAskRequested?()
+            return
+        }
         let everything = visibleItems.flatMap { item -> [SelectionAction] in
             switch item {
             case let .action(action): return [action]
@@ -593,6 +659,11 @@ final class SelectionRewritePopover: NSPanel {
                 items: ranked.overflow.map { .action(id: $0.id, title: $0.title) }
             ))
         }
+        // Always last, always present. A catalogue answers the things people want repeatedly; this
+        // answers the rest, which is most of them — "make this sound less annoyed", "turn this into
+        // a bulleted agenda", "say this in Spanish but keep the greeting". Those are each wanted
+        // once, so there is nothing to save and nothing to name.
+        entries.append(.action(id: Self.askEntryID, title: "Ask…"))
         state = .actions(entries)
         render()
     }
@@ -765,6 +836,8 @@ final class SelectionRewriteController {
     private var replacesByPasting = false
     /// The action currently running, so Cancel has something to cancel.
     private var runningWork: Task<Void, Never>?
+    /// Who was frontmost before the panel took the keyboard for the instruction field.
+    private var appBeforeAsking: NSRunningApplication?
 
     private let minSelectionLength = 3
 
@@ -840,6 +913,8 @@ final class SelectionRewriteController {
         }
         popover.onAction = { [weak self] action in self?.perform(action) }
         popover.onAcceptResult = { [weak self] text in self?.acceptPreviewedResult(text) }
+        popover.onAskRequested = { [weak self] in self?.beginAsking() }
+        popover.onAsk = { [weak self] instruction in self?.runAsk(instruction) }
         popover.onCancel = { [weak self] in
             RewriteLog.write("action cancelled by the user")
             self?.runningWork?.cancel()
@@ -1038,7 +1113,14 @@ final class SelectionRewriteController {
         // Checked first, deliberately: every other dismissal rule sits behind a guard that can
         // return early, and the one thing worse than a missed suggestion is an overlay the user
         // cannot get rid of.
-        if let shownAt, Date().timeIntervalSince(shownAt) > Self.maximumVisibleSeconds {
+        // The cap exists so a panel can never be stuck on screen (ADR-113). It must not fire while
+        // the user is *using* it: fifteen seconds is a long time to leave an overlay unattended and a
+        // very short time to compose an instruction, and a text field that vanishes mid-sentence is
+        // worse than any stuck panel. Interaction defers it rather than disabling it — the moment the
+        // pointer leaves and nothing is running, the clock restarts.
+        if popover.isPointerInside || popover.isMenuOpen || popover.isInteracting || isBusy {
+            shownAt = Date()
+        } else if let shownAt, Date().timeIntervalSince(shownAt) > Self.maximumVisibleSeconds {
             RewriteLog.write("poll: dismissed by the visibility cap")
             hide(suppressingCurrentSelection: true)
             return
@@ -1067,6 +1149,12 @@ final class SelectionRewriteController {
             hide(); return
         }
         if let bundle, bundle.hasPrefix("app.glide") {
+            // Unless the panel is the reason Glide has focus. The instruction field has to hold the
+            // keyboard to be typed into, which makes Glide frontmost by definition — and this rule
+            // then dismissed it one second later, taking the field away mid-sentence. Sustained
+            // self-focus only means "the user wandered off to a Glide window" when the panel is not
+            // itself waiting on them.
+            if popover.isInteracting { glideFocusPolls = 0; return }
             // Brief self-focus is the popover itself; sustained self-focus means the user has moved
             // to a Glide window and is no longer editing the text this was offered for.
             glideFocusPolls += 1
@@ -1229,6 +1317,9 @@ final class SelectionRewriteController {
         pendingKey = nil
         presentedAnchor = nil
         replacesByPasting = false
+        // Never strand the user in Glide because they opened the field and changed their mind.
+        appBeforeAsking?.activate()
+        appBeforeAsking = nil
         popover.orderOut(nil)
     }
 
@@ -1340,7 +1431,11 @@ final class SelectionRewriteController {
             do {
                 let result = try await self.runner.run(action, on: context)
                 try Task.checkCancellation()
-                self.actionStore.recordUse(of: action.id)
+                // Not the ad-hoc one: it is synthesised per invocation and is not in the catalogue,
+                // so counting it would accumulate a usage key that ranks nothing and never expires.
+                if action.id != SelectionRewritePopover.askEntryID {
+                    self.actionStore.recordUse(of: action.id)
+                }
                 self.apply(result, from: action)
             } catch is CancellationError {
                 RewriteLog.write("action \(action.id) cancelled")
@@ -1396,6 +1491,39 @@ final class SelectionRewriteController {
             // away the answer they asked for.
             popover.showResult(result.text, canReplace: false)
         }
+    }
+
+    /// Hand the panel the keyboard so an instruction can be typed, remembering who had focus.
+    @MainActor
+    private func beginAsking() {
+        // Captured *before* the panel takes key, because afterwards the frontmost app is Glide.
+        appBeforeAsking = NSWorkspace.shared.frontmostApplication
+        // The result goes back by paste: the target app is about to lose and regain focus, and an
+        // Accessibility write across that is not something to rely on (ADR-133, ADR-143).
+        replacesByPasting = true
+        popover.beginAsking()
+    }
+
+    /// Run a one-off instruction against the selection the panel was opened for.
+    @MainActor
+    private func runAsk(_ instruction: String) {
+        guard let context = pendingContext, !isBusy else { return }
+        RewriteLog.write("ask: \(RewriteLog.text(instruction)) on \(context.text.count) chars")
+
+        // Give the document its focus back now, while the model runs — by the time there is a result
+        // to paste, the user is looking at their own app again and the selection is live.
+        if let app = appBeforeAsking {
+            app.activate()
+            appBeforeAsking = nil
+        }
+
+        let action = SelectionAction(
+            id: SelectionRewritePopover.askEntryID,
+            title: "Ask",
+            kind: .prompt(instruction),
+            output: .replaceSelection
+        )
+        perform(action)
     }
 
     /// Apply a result the user accepted from the preview.

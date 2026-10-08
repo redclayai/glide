@@ -4383,3 +4383,33 @@ text. Both are now closed:
 - Consequences: the division of labour is now honest — the deterministic engine does what is
   deterministic, the model does what needs judgement. "we was late … should of called" is deliberately
   untouched by the spelling pass; it is grammar, and it is the model's half.
+
+## ADR-150 — An ad-hoc instruction, and the rules that fought it
+
+- Date: 2026-10-08
+- Status: accepted
+- Context: a request to mirror Grammarly's rewrite popup. Most of it Glide already had — categories
+  are groups (ADR-141), "this text is well-written" is `ActionError.unchanged` (ADR-138). The one
+  thing missing was its "Enter your own…" field: an instruction that applies to this selection only.
+  A catalogue serves what people want repeatedly; the long tail is wanted once, and has nothing to
+  name and nothing to save.
+- Decision: `SelectionToolbarState.asking` puts a text field in the panel, and submitting synthesises
+  an ephemeral `.prompt` action run through the existing runner — so it inherits the preview,
+  Replace/Copy, cancellation and provider plumbing for free. Its usage is deliberately *not* recorded:
+  the id is not in the catalogue, so counting it would accumulate a key that ranks nothing.
+- The hard part was focus, and it was entirely self-inflicted. A text field needs the panel to take
+  key, which ADR-143 established also takes focus from the document. Three existing rules then fought
+  it, and each had to be taught the difference between an idle panel and a busy one:
+  1. The 15-second visibility cap (ADR-113) dismissed the field mid-typing. Interaction now defers
+     the clock instead of stopping it, so "stuck forever" stays impossible.
+  2. The Glide-self-focus rule dismissed the panel one second after the field opened — the focus the
+     field requires was read as "the user wandered off into a Glide window".
+  3. The result has to go back by paste, not an Accessibility write, because the target app has been
+     through a focus change by then. The previously-frontmost app is captured before taking key and
+     reactivated while the model runs, so the document has focus again before there is anything to
+     apply.
+- Note on method: three separate attempts to verify this by synthetic click reported "nothing
+  happened" when the click had in fact worked — the panel opened the field and rule 2 destroyed it
+  within a second, and the ask branch returned before the line that logs a selection. The log told
+  the truth only once the panel's *width* change at 17:53:38 was read as a state change rather than
+  noise. Logging the branch was the fix for the next person.
