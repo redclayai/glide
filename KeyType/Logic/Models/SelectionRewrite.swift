@@ -1326,6 +1326,7 @@ final class SelectionRewriteController {
     /// Global hotkey CGEventTap (⌃⌥P / ⌃⌥G) — the universal trigger.
     private var hotkeyTap: CFMachPort?
     private var hotkeyRunLoopSource: CFRunLoopSource?
+    private var hotkeyThread: Thread?
     /// Cached so the action uses the selection that was live when the popover appeared.
     private var pendingText: String?
     /// The same selection, with its detected properties, so an action does not recompute them.
@@ -1436,7 +1437,17 @@ final class SelectionRewriteController {
     func start() {
         guard pollTimer == nil else { return }
         let timer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.poll() }
+            MainActor.assumeIsolated {
+                // Timed, and reported only when slow. The poll owns the main thread while it
+                // runs, so its duration is the length of time the UI — and anything else waiting
+                // on that thread — is unavailable. Anything above a frame is worth knowing about.
+                let started = CFAbsoluteTimeGetCurrent()
+                self?.poll()
+                let elapsed = (CFAbsoluteTimeGetCurrent() - started) * 1000
+                if elapsed > 16 {
+                    RewriteLog.write(String(format: "poll SLOW %.0fms", elapsed))
+                }
+            }
         }
         timer.tolerance = 0.15
         RunLoop.main.add(timer, forMode: .common)
@@ -1471,19 +1482,43 @@ final class SelectionRewriteController {
             return
         }
         let src = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
-        CFRunLoopAddSource(CFRunLoopGetMain(), src, .commonModes)
-        CGEvent.tapEnable(tap: tap, enable: true)
+
+        // On its own thread, never the main one.
+        //
+        // A `.cgSessionEventTap` at `.headInsertEventTap` sits in front of every keystroke in
+        // every application: the key does not reach the app until this callback returns. Hanging
+        // that off `CFRunLoopGetMain()` put it behind everything else Glide does on its main
+        // thread — four Accessibility polls a second, each a synchronous cross-process call, plus
+        // the card's layout and rendering. Typing in a busy app stuttered accordingly, and the
+        // system disables a tap outright when its callback is late, which is what
+        // `reEnableHotkeyTap` was already papering over.
+        //
+        // The callback does almost nothing itself, hopping to the main actor for any real work,
+        // so a dedicated thread stays responsive no matter what the rest of the app is doing.
+        let thread = Thread {
+            CFRunLoopAddSource(CFRunLoopGetCurrent(), src, .commonModes)
+            CGEvent.tapEnable(tap: tap, enable: true)
+            while !Thread.current.isCancelled {
+                CFRunLoopRunInMode(.defaultMode, 1.0, false)
+            }
+        }
+        thread.name = "app.glide.hotkey-tap"
+        thread.qualityOfService = .userInteractive
+        thread.start()
+
         hotkeyTap = tap
         hotkeyRunLoopSource = src
+        hotkeyThread = thread
     }
 
     private func removeHotkeyTap() {
-        if let tap = hotkeyTap {
-            CGEvent.tapEnable(tap: tap, enable: false)
-            if let src = hotkeyRunLoopSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), src, .commonModes) }
-        }
+        if let tap = hotkeyTap { CGEvent.tapEnable(tap: tap, enable: false) }
+        // The thread removes nothing itself: cancelling it ends its run loop within a second and
+        // the source dies with it.
+        hotkeyThread?.cancel()
         hotkeyTap = nil
         hotkeyRunLoopSource = nil
+        hotkeyThread = nil
     }
 
     fileprivate func reEnableHotkeyTap() {
@@ -1562,7 +1597,13 @@ final class SelectionRewriteController {
         let ptrValue = UInt(bitPattern: refcon)
 
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            MainActor.assumeIsolated {
+        // `DispatchQueue.main.async`, not `MainActor.assumeIsolated`.
+        //
+        // The callback runs on the tap's own thread now, and `assumeIsolated` is a precondition,
+        // not a conversion: it traps outright when the caller is not the main actor. Every one of
+        // these was written when the tap lived on the main run loop and all three would have
+        // crashed Glide the first time the key was pressed.
+            DispatchQueue.main.async {
                 if let p = UnsafeMutableRawPointer(bitPattern: ptrValue) {
                     Unmanaged<SelectionRewriteController>.fromOpaque(p).takeUnretainedValue().reEnableHotkeyTap()
                 }
@@ -1578,7 +1619,7 @@ final class SelectionRewriteController {
         // means something in the app the user is working in, and stealing it would be a worse bug
         // than the one this fixes.
         if keyCode == 53 {
-            MainActor.assumeIsolated {
+            DispatchQueue.main.async {
                 if let p = UnsafeMutableRawPointer(bitPattern: ptrValue) {
                     Unmanaged<SelectionRewriteController>.fromOpaque(p).takeUnretainedValue().dismissFromEscape()
                 }
@@ -1591,7 +1632,7 @@ final class SelectionRewriteController {
         guard hasCtrlOpt, !hasOther, keyCode == 35 || keyCode == 5 || keyCode == 0 else {
             return Unmanaged.passUnretained(event)
         }
-        MainActor.assumeIsolated {
+        DispatchQueue.main.async {
             guard let p = UnsafeMutableRawPointer(bitPattern: ptrValue) else { return }
             let controller = Unmanaged<SelectionRewriteController>.fromOpaque(p).takeUnretainedValue()
             if keyCode == 0 {
@@ -2299,12 +2340,29 @@ final class SelectionRewriteController {
 
 /// Minimal Accessibility readers for selection detection + placement.
 private enum AX {
+    /// How long an Accessibility read may block before giving up.
+    ///
+    /// These calls are synchronous and cross-process: they return when the *other* app's
+    /// accessibility server gets round to answering. The system default is several seconds, and a
+    /// busy Electron or Chromium app takes a meaningful fraction of that. The poll runs four
+    /// times a second on the main run loop, so every one of those stalls is a stall of Glide's
+    /// main thread — which, until the event tap was moved off it, was also a stall of the user's
+    /// typing in every application.
+    ///
+    /// A quarter second is far longer than a healthy read (sub-millisecond) and far shorter than
+    /// a hang. Missing a poll costs nothing; the next one is 400ms away.
+    static let messagingTimeout: Float = 0.25
+
     static func focusedElement() -> AXUIElement? {
         let systemWide = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(systemWide, messagingTimeout)
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(systemWide, kAXFocusedUIElementAttribute as CFString, &value) == .success,
               let v = value, CFGetTypeID(v) == AXUIElementGetTypeID() else { return nil }
-        return (v as! AXUIElement)
+        let element = v as! AXUIElement
+        // The timeout is per-element, so the focused element needs its own.
+        AXUIElementSetMessagingTimeout(element, messagingTimeout)
+        return element
     }
 
     static func string(_ element: AXUIElement, _ attr: String) -> String? {

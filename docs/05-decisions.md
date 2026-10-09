@@ -4710,3 +4710,39 @@ text. Both are now closed:
   nothing at all and the keystrokes went on to the document. Verified both ways — with it set, the
   field could not be typed into; reverted, "make it formal" lands in the field and the document is
   untouched.
+
+## ADR-162 — The keystroke tap does not belong on the main thread
+
+- Date: 2026-10-09
+- Status: accepted
+- Context: "still feels like the focus stealing or interfering with the type" — with the automatic
+  pass switched off. So ADR-161's account was incomplete, and this is the second wrong diagnosis
+  of the same symptom. Reading the code rather than theorising about behaviour found something
+  structural and independent of everything changed this week.
+- The hotkey `CGEventTap` is a `.cgSessionEventTap` inserted at `.headInsertEventTap`: it sits in
+  front of **every keystroke in every application**, and the key does not reach the app until the
+  callback returns. Its run-loop source was added to `CFRunLoopGetMain()`. Also on that thread:
+  the selection poll, four times a second, making synchronous cross-process Accessibility calls
+  whose duration is set by how busy the *other* application is.
+- Measured, once instrumented: polls of **26ms and 50ms** within the first minute of ordinary use.
+  Every one of those was a stall of the user's typing, everywhere, because the tap was queued
+  behind it. The system also disables a tap whose callback is late, which is what the pre-existing
+  `reEnableHotkeyTap` had been quietly papering over.
+- Decision, three parts:
+  - The tap gets a dedicated `.userInteractive` thread running its own run loop. The callback does
+    nothing but classify the key and hop to the main actor, so it stays responsive whatever else
+    the app is doing.
+  - `AXUIElementSetMessagingTimeout` at 0.25s on the system-wide and focused elements. A healthy
+    read is sub-millisecond; the default ceiling is seconds. Missing a poll costs nothing.
+  - The poll is timed and logs when it exceeds a frame, so this is never again a matter of
+    opinion.
+- **The part worth remembering.** Moving the tap off the main thread without reading the callback
+  would have shipped a crash: all three of its main-actor hops used `MainActor.assumeIsolated`,
+  which is a precondition and traps when the caller is not the main actor. Pressing Escape — or
+  the tap being disabled, or the hotkey being used — would have killed the app. It was installed
+  on the user's machine in that state for several minutes before the callback was read.
+  `assumeIsolated` is correct only while the caller's thread is a fact about the code; moving the
+  caller makes it a trap. The poll timer's own `assumeIsolated` is still correct and still there.
+- Verified after: ⌃⌥G fires through the relocated tap and pastes its correction, Escape dismisses
+  without crashing, and slow polls continue to be logged while no longer being able to delay a
+  keystroke.
