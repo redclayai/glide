@@ -4784,3 +4784,42 @@ text. Both are now closed:
   would have raised a card on every tick. Note when reading the log that the refusal line is
   deduplicated against the last one, so a handful of entries can represent a great many
   suppressions.
+
+## ADR-164 — Both blocking taps off the main thread, and a bound on the whole poll
+
+- Date: 2026-10-09
+- Status: accepted
+- Context: "hitting backspace there is a delay and have to hit it multiple times to get it to
+  work." ADR-162 moved *a* keystroke tap off the main thread and I stopped there without asking
+  whether there were others. There are three. One `grep` for `tapCreate` would have found them all
+  in a second.
+  - `SelectionRewriteController` — the hotkey tap, moved in ADR-162.
+  - `AccessibilityContextTracker` — `.listenOnly` and tail-appended, so the system never waits on
+    it. Harmless.
+  - `CompletionAcceptanceController` — a head-inserted `.defaultTap` on every `keyDown`, which is
+    to say every keystroke in every application waits for its callback. It ran
+    `MainActor.assumeIsolated` and so could not answer until Glide's main thread was free. That is
+    the one the user was feeling.
+- Evidence: the poll instrumentation from ADR-162 had logged 655 main-thread stalls, worst cases
+  816ms, 2051ms and **2560ms**. A keystroke queued behind one of those looks like a key that did
+  nothing, and when the callback is late enough the system disables the tap outright — some
+  presses land, some do not, which is "have to hit it multiple times".
+- Decision, the tap: its own `.userInteractive` thread, and the hot path no longer touches the
+  main actor at all. The only main-actor state it needs is the two accept shortcuts, which are
+  `Sendable` and change only when the user edits them, so they live in a lock-protected box
+  mirrored on every `UserDefaults` change. An ordinary key — a letter, **Backspace** — is decided
+  entirely from that box and returns immediately. Only an accept key asks the main actor, and only
+  with a 150ms budget, after which it does what it would natively have done. A `Decision` settles
+  the race so a late answer cannot both accept the completion *and* let Tab through.
+- Decision, the poll: capping each Accessibility read was not the same as capping the poll. A poll
+  makes a dozen reads and against a wedged app every one paid the ceiling — twelve times a quarter
+  second is the 2,560ms actually measured. The ceiling is now 80ms, every read goes through one
+  `copy` helper that notices `.cannotComplete`, and the poll abandons the round on the first
+  timeout rather than paying it again for each remaining attribute.
+- Measured after: worst stall **80ms**, down from 2560ms. The phase breakdown names the cost
+  precisely — fetching the focused element is 14–80ms and everything else in the poll is ~0ms, so
+  there is now one thing to optimise rather than a mystery.
+- Verified: Tab still accepts a completion through the new path ("Thank you for your " → "Thank
+  you for your help.") with no tab character inserted, so the key is still correctly swallowed.
+  Typing was clean across seven of eight synthetic runs; the eighth dropped a character and did
+  not reproduce, so it is recorded as unexplained rather than fixed.

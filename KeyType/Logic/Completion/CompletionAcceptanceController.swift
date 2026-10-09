@@ -27,6 +27,18 @@ final class CompletionAcceptanceController {
 
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
+    private var tapThread: Thread?
+    private var defaultsObserver: NSObjectProtocol?
+    /// The two shortcuts, readable from the tap's thread without touching the main actor.
+    private let shortcuts = ShortcutBox()
+
+    /// How long an accept key may wait for the main thread before giving up and behaving natively.
+    ///
+    /// Only an accept key ever waits. Ordinary typing — letters, Backspace — is decided entirely
+    /// from `shortcuts` on the tap's own thread and never blocks, which is the whole point of the
+    /// change: those keys were waiting on a main thread measured stalling for as long as 2.5
+    /// seconds, so Backspace appeared not to work and had to be pressed repeatedly (ADR-164).
+    private static let decisionBudget: TimeInterval = 0.15
     private let log = Logger(subsystem: "com.pattonium.KeyType", category: "acceptance")
 
     private(set) var isRunning = false
@@ -45,9 +57,9 @@ final class CompletionAcceptanceController {
             callback: { _, type, event, refcon in
                 guard let refcon else { return Unmanaged.passUnretained(event) }
                 let controller = Unmanaged<CompletionAcceptanceController>.fromOpaque(refcon).takeUnretainedValue()
-                return MainActor.assumeIsolated {
-                    controller.process(type: type, event: event)
-                }
+                // `nonisolated`, and deliberately not `MainActor.assumeIsolated`: this runs on the
+                // tap's thread now, where that call is a precondition failure rather than a hop.
+                return controller.processOffMain(type: type, event: event)
             },
             userInfo: refcon
         ) else {
@@ -56,11 +68,36 @@ final class CompletionAcceptanceController {
         }
 
         let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
-        CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .commonModes)
-        CGEvent.tapEnable(tap: tap, enable: true)
 
+        // Its own thread, never the main one. A head-inserted `.defaultTap` on `keyDown` holds up
+        // every keystroke in every application until its callback returns; hanging that off the
+        // main run loop meant each key waited behind the Accessibility poll and the card's layout.
+        let thread = Thread {
+            CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .commonModes)
+            CGEvent.tapEnable(tap: tap, enable: true)
+            while !Thread.current.isCancelled {
+                CFRunLoopRunInMode(.defaultMode, 1.0, false)
+            }
+        }
+        thread.name = "app.glide.acceptance-tap"
+        thread.qualityOfService = .userInteractive
+        thread.start()
+
+        refreshShortcuts()
+        // The bindings live in `UserDefaults`, so this catches every route that can change them —
+        // the settings pane, a reset, a sync — without each having to remember to call it. A
+        // snapshot that silently goes stale would mean Tab quietly ceasing to accept, which is
+        // precisely the class of failure this project keeps finding (ADR-135, ADR-159).
+        defaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshShortcuts() }
+        }
         eventTap = tap
         runLoopSource = source
+        tapThread = thread
         isRunning = true
         log.debug("Completion acceptance tap installed")
     }
@@ -70,20 +107,30 @@ final class CompletionAcceptanceController {
         if let eventTap {
             CGEvent.tapEnable(tap: eventTap, enable: false)
         }
-        if let runLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
+        if let defaultsObserver {
+            NotificationCenter.default.removeObserver(defaultsObserver)
+            self.defaultsObserver = nil
         }
+        // The thread's run loop ends within a second of cancelling and takes the source with it.
+        tapThread?.cancel()
         eventTap = nil
         runLoopSource = nil
+        tapThread = nil
         isRunning = false
     }
 
-    /// Decide whether to consume (return nil) or pass through (return the event). Runs on the main
-    /// run loop, so `MainActor.assumeIsolated` at the call site is valid.
-    private func process(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
-        // The system disables a tap that times out or is interrupted; re-enable and pass through.
+    /// Runs on the tap's thread, for every keystroke in every application.
+    ///
+    /// Everything decided here is decided without the main actor: the event's own fields, and the
+    /// two shortcuts out of `shortcuts`. A key that is not an accept key — which is to say almost
+    /// every key the user presses — returns immediately, and whatever the main actor needs to know
+    /// about it is posted asynchronously behind it.
+    nonisolated func processOffMain(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            if let eventTap { CGEvent.tapEnable(tap: eventTap, enable: true) }
+            DispatchQueue.main.async { [weak self] in
+                guard let tap = self?.eventTap else { return }
+                CGEvent.tapEnable(tap: tap, enable: true)
+            }
             return Unmanaged.passUnretained(event)
         }
 
@@ -104,58 +151,88 @@ final class CompletionAcceptanceController {
         // divergent non-text key. This check intentionally runs before user-configurable accept
         // shortcuts so KeyType can never steal Shift-Command-3/4/5 from the system.
         if Self.isScreenCaptureShortcut(keyCode: keyCode, flags: flags) {
-            completionController?.prepareForScreenCaptureShortcut()
+            DispatchQueue.main.async { [weak self] in
+                self?.completionController?.prepareForScreenCaptureShortcut()
+            }
             return Unmanaged.passUnretained(event)
         }
 
-        let acceptWord = settings?.acceptWordShortcut ?? .defaultAcceptWord
-        let acceptFull = settings?.acceptFullShortcut ?? .defaultAcceptFull
+        let pair = shortcuts.current
+        let matchesFull = pair.full.matches(keyCode: keyCode, flags: flags)
+        let matchesWord = pair.word.matches(keyCode: keyCode, flags: flags)
 
-        // Match the full-acceptance hotkey first: it is typically the same key as accept-word plus a
-        // modifier (Shift+Tab vs Tab), so checking the more specific binding first is required.
-        let matchesFull = acceptFull.matches(keyCode: keyCode, flags: flags)
-        let matchesWord = acceptWord.matches(keyCode: keyCode, flags: flags)
+        // The ordinary path, and the one that matters for how typing feels: not an accept key, so
+        // there is nothing to decide and nothing to wait for. The suggestion-invalidating work is
+        // posted to the main actor and this returns at once.
+        guard matchesFull || matchesWord else {
+            let mutation = Self.textMutation(keyCode: keyCode, flags: flags, event: event)
+            DispatchQueue.main.async { [weak self] in
+                self?.completionController?.dismissStaleCompletion(mutation: mutation)
+            }
+            return Unmanaged.passUnretained(event)
+        }
+
+        // An accept key, and only now is the main actor's answer needed: whether anything is
+        // actually waiting to be accepted. Bounded, because a key must not hang behind a stalled
+        // main thread — past the budget it does what it would natively have done.
+        let decision = Decision()
+        let semaphore = DispatchSemaphore(value: 0)
+        DispatchQueue.main.async { [weak self] in
+            defer { semaphore.signal() }
+            guard let self, decision.claim() else { return }
+            decision.consumed = self.performAcceptance(matchesFull: matchesFull)
+        }
+        if semaphore.wait(timeout: .now() + Self.decisionBudget) == .timedOut, decision.claim() {
+            return Unmanaged.passUnretained(event)
+        }
+        return decision.consumed ? nil : Unmanaged.passUnretained(event)
+    }
+
+    /// The precedence between the rewrite and the completion, unchanged — only its caller moved.
+    /// Returns whether the key was used and should therefore be swallowed.
+    private func performAcceptance(matchesFull: Bool) -> Bool {
 
         // A rewrite that only exists because the user paused outranks a predicted continuation: by
         // then they have stopped composing, and correcting what they wrote beats guessing what comes
         // next. Checked before the completion path because the completion re-shows itself in the
         // second it takes to reach for the key.
-        if matchesFull || matchesWord,
-           let proofread = proofreadController, proofread.rewriteOwnsAcceptKey {
+        if let proofread = proofreadController, proofread.rewriteOwnsAcceptKey {
             proofread.acceptRewrite()
-            return nil // consume — the key applied the rewrite instead of its native action
+            return true
         }
 
-        if matchesFull || matchesWord,
-           let controller = completionController, controller.canAcceptCompletion {
+        if let controller = completionController, controller.canAcceptCompletion {
             if matchesFull {
                 controller.acceptFullCompletion()
             } else {
                 controller.acceptNextWord()
             }
-            return nil // consume — the key accepted the completion instead of its native action
+            return true
         }
 
         // No completion to accept: offer the key to a spelling fix before treating it as a key that
         // invalidates whatever is on screen.
-        if matchesFull || matchesWord,
-           let proofread = proofreadController, proofread.canAcceptRewrite {
+        if let proofread = proofreadController, proofread.canAcceptRewrite {
             proofread.acceptRewrite()
-            return nil // consume — the key applied the rewrite instead of its native action
+            return true
         }
 
-        // Any other key-down (including an accept key with nothing to accept) is about to mutate the
-        // field text or move the caret, which makes a visible suggestion stale. Dismiss it now rather
-        // than waiting for the slower AX value-changed snapshot — unless the user is typing the
-        // suggested characters, in which case the controller keeps it and lets the pipeline shrink it
-        // in place. See ADR-037.
-        completionController?.dismissStaleCompletion(
-            mutation: textMutation(keyCode: keyCode, flags: flags, event: event)
-        )
-        return Unmanaged.passUnretained(event)
+        // An accept key with nothing to accept is just another key that makes a visible suggestion
+        // stale. See ADR-037.
+        completionController?.dismissStaleCompletion(mutation: .nonText)
+        return false
     }
 
-    private func textMutation(keyCode: Int64, flags: CGEventFlags, event: CGEvent) -> CompletionTextMutation {
+    /// Mirrors the settings into `shortcuts`, which is what the tap thread reads. Called at start
+    /// and whenever the bindings change — they are the only main-actor state the hot path needs.
+    func refreshShortcuts() {
+        shortcuts.set(
+            word: settings?.acceptWordShortcut ?? .defaultAcceptWord,
+            full: settings?.acceptFullShortcut ?? .defaultAcceptFull
+        )
+    }
+
+    nonisolated private static func textMutation(keyCode: Int64, flags: CGEventFlags, event: CGEvent) -> CompletionTextMutation {
         if let text = typedText(keyCode: keyCode, flags: flags, event: event) {
             return .inserted(text)
         }
@@ -176,7 +253,7 @@ final class CompletionAcceptanceController {
     /// key. Returns `nil` for keys that don't insert plain text — ⌘/⌃-modified combos and control or
     /// navigation keys (return, tab, delete, escape, arrows/function keys) — so those always dismiss
     /// rather than accidentally matching the suggestion's first character.
-    private func typedText(keyCode: Int64, flags: CGEventFlags, event: CGEvent) -> String? {
+    nonisolated private static func typedText(keyCode: Int64, flags: CGEventFlags, event: CGEvent) -> String? {
         if flags.contains(.maskCommand) || flags.contains(.maskControl) {
             return nil
         }
@@ -206,5 +283,56 @@ final class CompletionAcceptanceController {
             option: flags.contains(.maskAlternate),
             command: flags.contains(.maskCommand)
         )
+    }
+}
+
+/// The accept-key bindings, shared between the main actor that owns them and the tap thread that
+/// reads them on every keystroke.
+///
+/// A lock rather than an actor, because the reader cannot await: it is inside a `CGEventTap`
+/// callback holding up a keystroke, and must answer now. `AcceptanceShortcut` is `Sendable` and
+/// the pair changes only when the user edits the bindings, so the lock is essentially never
+/// contended.
+private final class ShortcutBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var word: AcceptanceShortcut = .defaultAcceptWord
+    private var full: AcceptanceShortcut = .defaultAcceptFull
+
+    var current: (word: AcceptanceShortcut, full: AcceptanceShortcut) {
+        lock.lock()
+        defer { lock.unlock() }
+        return (word, full)
+    }
+
+    func set(word: AcceptanceShortcut, full: AcceptanceShortcut) {
+        lock.lock()
+        self.word = word
+        self.full = full
+        lock.unlock()
+    }
+}
+
+/// Settles the race between the tap thread's deadline and the main actor's answer.
+///
+/// Exactly one side gets to act. Without this, a main actor that replied just after the deadline
+/// would accept the completion *and* let the key through natively — a Tab that both completed the
+/// word and inserted a tab character.
+private final class Decision: @unchecked Sendable {
+    private let lock = NSLock()
+    private var settled = false
+    private var _consumed = false
+
+    /// True for whichever side gets here first; false for the other.
+    func claim() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if settled { return false }
+        settled = true
+        return true
+    }
+
+    var consumed: Bool {
+        get { lock.lock(); defer { lock.unlock() }; return _consumed }
+        set { lock.lock(); _consumed = newValue; lock.unlock() }
     }
 }

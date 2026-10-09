@@ -1674,11 +1674,33 @@ final class SelectionRewriteController {
 
         // Two sources for the selection — the shared tracker (drills to the real text element,
         // which is why autocomplete works) and a raw system-wide AX read. Prefer whichever has it.
+        // Phase timings. The poll was measured stalling the main thread for as long as 2.5
+        // seconds and the 0.25s Accessibility cap plainly did not cover whatever that was, so
+        // each cross-process step is timed separately rather than guessed at.
+        AX.timedOut = false
+        let t0 = CFAbsoluteTimeGetCurrent()
         let snap = tracker.currentSnapshot
+        let t1 = CFAbsoluteTimeGetCurrent()
         let snapSel = snap?.context.selection.selectedText
         let rawEl = AX.focusedElement()
+        let t2 = CFAbsoluteTimeGetCurrent()
         let rawSel = rawEl.flatMap { AX.string($0, kAXSelectedTextAttribute) }
+        let t3 = CFAbsoluteTimeGetCurrent()
         let bundle = snap?.context.target.bundleIdentifier ?? rawEl.flatMap { AX.bundleID($0) }
+        let t4 = CFAbsoluteTimeGetCurrent()
+        // One unresponsive app should cost one timeout, not a dozen. Everything below here reads
+        // more attributes off the same element, and against an app that has stopped answering they
+        // would each pay the ceiling again — which is how a poll reached 2.5 seconds.
+        if AX.timedOut {
+            RewriteLog.write(String(format: "poll: abandoned, accessibility timed out after %.0fms", (t4 - t0) * 1000))
+            return
+        }
+        if (t4 - t0) * 1000 > 16 {
+            RewriteLog.write(String(
+                format: "poll phases: snapshot %.0f  focused %.0f  selText %.0f  bundle %.0f (ms)",
+                (t1 - t0) * 1000, (t2 - t1) * 1000, (t3 - t2) * 1000, (t4 - t3) * 1000
+            ))
+        }
 
         let selected = (snapSel?.isEmpty == false ? snapSel : nil) ?? (rawSel?.isEmpty == false ? rawSel : nil) ?? ""
         let trimmed = selected.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2366,16 +2388,33 @@ private enum AX {
     /// main thread — which, until the event tap was moved off it, was also a stall of the user's
     /// typing in every application.
     ///
-    /// A quarter second is far longer than a healthy read (sub-millisecond) and far shorter than
-    /// a hang. Missing a poll costs nothing; the next one is 400ms away.
-    static let messagingTimeout: Float = 0.25
+    /// A healthy read is sub-millisecond, so 80ms is still enormously generous. Missing a poll
+    /// costs nothing; the next one is 400ms away.
+    ///
+    /// Note that this bounds a *single* call, which is not the same as bounding the poll. A poll
+    /// makes a dozen of them, and against a wedged app every one hits the ceiling: at the
+    /// original quarter second that multiplied out to the 2,560ms main-thread stall actually
+    /// measured. `timedOut` is what bounds the round.
+    static let messagingTimeout: Float = 0.08
+
+    /// Set when a read gives up, so the poll can abandon the rest of the round instead of paying
+    /// the timeout again for every remaining attribute. Reset at the top of each poll.
+    nonisolated(unsafe) static var timedOut = false
+
+    /// Every read goes through here, so there is one place that notices a timeout.
+    static func copy(_ element: AXUIElement, _ attr: String) -> CFTypeRef? {
+        var value: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(element, attr as CFString, &value)
+        if result == .cannotComplete { timedOut = true }
+        guard result == .success else { return nil }
+        return value
+    }
 
     static func focusedElement() -> AXUIElement? {
         let systemWide = AXUIElementCreateSystemWide()
         AXUIElementSetMessagingTimeout(systemWide, messagingTimeout)
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(systemWide, kAXFocusedUIElementAttribute as CFString, &value) == .success,
-              let v = value, CFGetTypeID(v) == AXUIElementGetTypeID() else { return nil }
+        guard let v = copy(systemWide, kAXFocusedUIElementAttribute as String),
+              CFGetTypeID(v) == AXUIElementGetTypeID() else { return nil }
         let element = v as! AXUIElement
         // The timeout is per-element, so the focused element needs its own.
         AXUIElementSetMessagingTimeout(element, messagingTimeout)
@@ -2398,11 +2437,7 @@ private enum AX {
     ///
     /// `AXReadOnly` overrides all three, because an element that says so is answering directly.
     static func isEditable(_ element: AXUIElement) -> Bool {
-        var readOnly: CFTypeRef?
-        if AXUIElementCopyAttributeValue(element, "AXReadOnly" as CFString, &readOnly) == .success,
-           let flag = readOnly as? Bool, flag {
-            return false
-        }
+        if let readOnly = copy(element, "AXReadOnly") as? Bool, readOnly { return false }
         if settable(element, kAXSelectedTextAttribute as String) { return true }
         if settable(element, kAXValueAttribute as String) { return true }
         return editableRoles.contains(string(element, kAXRoleAttribute as String) ?? "")
@@ -2433,8 +2468,8 @@ private enum AX {
     }
 
     static func string(_ element: AXUIElement, _ attr: String) -> String? {
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, attr as CFString, &value) == .success,
+        let value = copy(element, attr)
+        guard let value,
               let s = value as? String else { return nil }
         return s
     }
