@@ -330,6 +330,8 @@ final class SelectionRewritePopover: NSPanel {
     var onAsk: ((String) -> Void)?
     /// The user chose "Ask…" and wants the instruction field.
     var onAskRequested: (() -> Void)?
+    /// The user did something that outranks the automatic pass, so it should stop.
+    var onUserTookOver: (() -> Void)?
 
     /// One SwiftUI root for every state. Replaces an `NSStackView` of `NSButton`s, hairline `NSBox`
     /// dividers, a spinner and a hand-rolled result surface — see `SelectionToolbarView` for what the
@@ -946,7 +948,18 @@ final class SelectionRewritePopover: NSPanel {
         guard let raw = sender.identifier?.rawValue else { return }
         activeTab = String(raw.dropFirst("tab.".count))
         RewriteLog.write("tab: \(activeTab ?? "?")")
-        if let ranked = lastRanked { setActions(ranked) }
+        guard let ranked = lastRanked else { return }
+
+        // Choosing a tab asks to see that tab, so it replaces the body — unlike a selection poll,
+        // which must not. And it stops the automatic pass, which would otherwise land a diff on
+        // top of the tab a moment after it was opened.
+        onUserTookOver?()
+        bodySelection = nil
+        isUnsolicited = false
+        buildHeader(ranked)
+        state = .actions(entriesForActiveTab(ranked))
+        render()
+        represent()
     }
 
     /// The actions belonging to the active tab.
@@ -971,16 +984,57 @@ final class SelectionRewritePopover: NSPanel {
 
     private var lastRanked: RankedActions?
 
-    func setActions(_ ranked: RankedActions) {
+    /// The selection the card is about, and the one its body was computed for.
+    ///
+    /// Two values rather than one, because they are allowed to differ for a moment — a body is
+    /// built for whatever `currentSelection` held at the time, and the gap between them is
+    /// precisely how a stale body is recognised. Every `show…` method records the pairing itself,
+    /// so no call site can forget to.
+    private var currentSelection: String?
+    private var bodySelection: String?
+
+    /// Forget the body. Called on dismissal, so the next selection cannot inherit the last one's
+    /// proposal.
+    func clearBody() {
+        bodySelection = nil
+        currentSelection = nil
+        isUnsolicited = false
+        state = .actions(lastRanked.map(entriesForActiveTab) ?? [])
+        render()
+    }
+
+
+    func setActions(_ ranked: RankedActions, for selection: String) {
         visibleItems = ranked.items
         overflowActions = ranked.overflow
 
         lastRanked = ranked
+        currentSelection = selection
         buildHeader(ranked)
-        // The header is rebuilt for the new selection either way, but the body is not touched while
-        // it is holding something: the selection poller calls this several times a second, and
-        // before this guard it wiped a running spinner, a finished diff, or a correction the user
-        // was half-way through reading.
+
+        // A body computed for other text is stale and must go, however interesting it was.
+        //
+        // This is the "it kept recommending a change I had already applied" bug: accepting a
+        // correction replaced the text and hid the card but left the diff sitting in the panel.
+        // Selecting the corrected sentence rebuilt the header, found the body occupied, and left
+        // the old proposal on screen — still offering to fix a typo that was no longer there.
+        if bodySelection != selection {
+            bodySelection = nil
+            isUnsolicited = false
+            state = .actions(entriesForActiveTab(ranked))
+            render()
+            // Re-present, because the window keeps whatever size it was given and a card that
+            // just dropped a three-line diff would otherwise sit at the diff's height with the
+            // actions row stranded at the top of it. Only on this branch: the no-op path runs
+            // several times a second, and re-presenting on every poll is what used to make the
+            // panel wander (ADR-144).
+            represent()
+            return
+        }
+
+        // Same selection: the body is not touched while it is holding something. The poller calls
+        // this several times a second, and before this guard it wiped a running spinner, a
+        // finished diff, or a correction the user was half-way through reading.
         //
         // The flag is cleared *after* the guard, not before. Clearing it on every poll would turn
         // an unsolicited diff into a solicited one within a quarter of a second, and the card
@@ -993,6 +1047,7 @@ final class SelectionRewritePopover: NSPanel {
 
     func showWorking(_ title: String) {
         isUnsolicited = false
+        bodySelection = currentSelection
         state = .working(title: title)
         render()
         represent()
@@ -1008,6 +1063,7 @@ final class SelectionRewritePopover: NSPanel {
     ) {
         let edits = RewriteDiff.edits(original: original, replacement: replacement)
         isUnsolicited = !solicited
+        bodySelection = currentSelection
         state = .diff(title: title, edits: edits, replacement: replacement, footnote: footnote)
         render()
         represent()
@@ -1017,6 +1073,7 @@ final class SelectionRewritePopover: NSPanel {
     /// is the user's own sentence shown back to them under a heading claiming it was improved.
     func showClean(title: String, detail: String) {
         isUnsolicited = false
+        bodySelection = currentSelection
         state = .clean(title: title, detail: detail)
         render()
         represent()
@@ -1024,12 +1081,15 @@ final class SelectionRewritePopover: NSPanel {
 
     func showResult(_ text: String, canReplace: Bool) {
         isUnsolicited = false
+        bodySelection = currentSelection
         state = .result(text: text, canReplace: canReplace)
         render()
         represent()
     }
 
     func showMessage(_ text: String) {
+        isUnsolicited = false
+        bodySelection = currentSelection
         state = .message(text)
         render()
         represent()
@@ -1160,7 +1220,7 @@ final class SelectionRewriteController {
         // system font is visible in the log rather than only to a trained eye.
         RewriteLog.write("preview fonts: body=\(CardStyle.bodyFont.fontName) tab=\(CardStyle.tabFont.fontName) heading=\(CardStyle.headingFont.fontName)")
         popover.setStripSubtitle("Preview \u{2014} on-device rewrite")
-        popover.setActions(ranked)
+        popover.setActions(ranked, for: original)
         popover.showDiff(title: "Corrected grammar and tightened phrasing", original: original, replacement: replacement)
         guard let screen = NSScreen.main else { return }
         let middle = CGRect(
@@ -1309,6 +1369,7 @@ final class SelectionRewriteController {
         }
         popover.onAction = { [weak self] action in self?.perform(action) }
         popover.onAcceptResult = { [weak self] text in self?.acceptPreviewedResult(text) }
+        popover.onUserTookOver = { [weak self] in self?.cancelAutoCheck() }
         popover.onAsk = { [weak self] instruction in self?.runAsk(instruction) }
         popover.onCancel = { [weak self] in
             RewriteLog.write("action cancelled by the user")
@@ -1440,7 +1501,7 @@ final class SelectionRewriteController {
             replacesByPasting = true
             shownAt = Date()
             shownBundle = bundle
-            popover.setActions(ranked)
+            popover.setActions(ranked, for: copied)
             popover.present(aboveScreenRect: Self.mouseRectQuartz())
         }
     }
@@ -1665,7 +1726,7 @@ final class SelectionRewriteController {
         // before that happened.
         appBeforeAsking = NSWorkspace.shared.frontmostApplication
         lastAutoRanked = ranked
-        popover.setActions(ranked)
+        popover.setActions(ranked, for: selected)
         startAutoCheck(for: actionContext)
 
         // A visible panel never follows the pointer.
@@ -1709,6 +1770,7 @@ final class SelectionRewriteController {
         // Forgotten deliberately: re-selecting the same sentence after dismissing the card should
         // check it again, because the user asking twice is the user asking.
         autoCheckedText = nil
+        popover.clearBody()
         if suppressingCurrentSelection, let shown = shownSelection {
             dismissedKey = Self.selectionKey(shown)
         }
@@ -1900,7 +1962,7 @@ final class SelectionRewriteController {
                         solicited: false
                     )
                 } else if let ranked = self.lastAutoRanked {
-                    self.popover.setActions(ranked)
+                    self.popover.setActions(ranked, for: context.text)
                 }
             }
         }
@@ -1990,6 +2052,7 @@ final class SelectionRewriteController {
                 : Self.replaceSelection(with: result.text)
             RewriteLog.write("replaceSelection paste=\(replacesByPasting) ok=\(ok)")
             hide()
+            suppressJustApplied(result.text)
 
         case .copyToClipboard:
             let pasteboard = NSPasteboard.general
@@ -2048,6 +2111,21 @@ final class SelectionRewriteController {
             : Self.replaceSelection(with: text)
         RewriteLog.write("accepted preview paste=\(replacesByPasting) ok=\(ok)")
         hide()
+        suppressJustApplied(text)
+    }
+
+    /// Don't offer anything about text that was just applied.
+    ///
+    /// Accepting a correction leaves the replacement selected, so the next poll — a quarter of a
+    /// second later — finds a perfectly good selection and opens the card again on it. With the
+    /// automatic pass running that means a correction, an accept, and a card straight back in the
+    /// same place: the user presses Replace and nothing appears to have happened.
+    ///
+    /// Keyed the same way every other dismissal is, and cleared by the same rule, so selecting the
+    /// sentence again later still offers the card. It only suppresses the moment immediately after.
+    private func suppressJustApplied(_ text: String) {
+        dismissedKey = Self.selectionKey(text)
+        autoCheckedText = text
     }
 
     /// How long to wait for an accessibility write to show up in the field's value before treating

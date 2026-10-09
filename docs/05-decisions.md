@@ -4577,3 +4577,36 @@ text. Both are now closed:
   outright was the first fix and lost "Teh", which is the commonest typo there is. It failed
   silently and only where several typos sat close together, which is exactly the text this exists
   for.
+
+## ADR-157 — The card's body belongs to one selection
+
+- Date: 2026-10-09
+- Status: accepted
+- Context: "I applied the changes and when I checked again, it was recommending the same changes
+  even though I applied them. Almost like it is stuck." The card was not stuck and had not
+  re-computed anything — it was showing the previous render. The giveaway was in the screenshot:
+  its replacement read "tuned in to" while the document read "tuned into", so the text on the card
+  could not have come from the document in front of it.
+- Cause, and it was mine, from ADR-155. Accepting a correction replaces the text and calls `hide()`,
+  which orders the panel out but never touched the body — the `.diff` state simply stayed. Selecting
+  the corrected sentence then rebuilt the header, hit the `isShowingBody` guard added one commit
+  earlier to stop polls wiping results, and left the stale proposal on screen. The guard was right;
+  it just had no notion of *which* selection the body it was protecting belonged to.
+- Decision: the popover tracks two values, `currentSelection` (what the card is about) and
+  `bodySelection` (what the body was computed for). `setActions(_:for:)` clears the body outright
+  when they disagree and only protects it when they match. Every `show…` method records the
+  pairing itself, so no call site can forget to, and `hide()` clears the body as well — either fix
+  alone would have been enough, which is the point of having both.
+- Two more things fell out of it:
+  - Dropping a body has to re-present. `render()` rebuilds the views but the window keeps its
+    size, so a card that had just discarded a three-line diff sat at the diff's height with the
+    actions row stranded at the top. Only on that branch: re-presenting on every poll is what made
+    the panel wander in the first place (ADR-144).
+  - Choosing a tab now replaces the body and cancels the automatic pass. Asking to see a tab and
+    then having a diff land on top of it a second later is the same bug wearing a different hat.
+- Also, and not strictly the same bug: accepting a correction leaves the replacement selected, so
+  the next poll a quarter-second later finds a good selection and opens the card again in the same
+  place. `suppressJustApplied` marks the applied text with the existing `dismissedKey`, so the
+  moment after an accept is quiet. Not exercised end-to-end — synthetic clicks do not reach this
+  panel's buttons and have produced false conclusions here before (ADR-119), so this rests on the
+  mechanism being the one Escape already uses rather than on a measurement.
