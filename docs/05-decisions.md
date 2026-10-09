@@ -4650,3 +4650,32 @@ text. Both are now closed:
 - Decision: `catch ActionError.unchanged` is handled on its own and shows the clean badge, or
   keeps the spelling diff where spelling found something. Every other error still falls back to
   the buttons without putting a message in front of someone who did not ask for one.
+
+## ADR-160 — The selection actions never went through the gate
+
+- Date: 2026-10-09
+- Status: accepted
+- Context: with the automatic pass running, selecting "The report was sent to the client on
+  Monday." — a sentence with nothing wrong with it — produced a card proposing that sentence
+  *twice*. The model's raw output was the input echoed and continued until it hit the token cap.
+  The same shape explains the garbage seen on a longer mail paragraph: "point updated the HRShare
+  site site Please let know if you run run into any issu".
+- Cause: `ModelRewriteGate` exists for exactly this, its own file opening with "this is the piece
+  that keeps the feature trustworthy", and it was wired only to the inline sentence rewriters.
+  The selection actions had never passed through it. That was survivable while Grammar was a
+  button someone pressed and read the result of; it stopped being survivable the moment the pass
+  started running on every selection and proposing the answer unasked.
+- Decision: `ActionRunner` takes an injected `ProofreadGate`, applied to `.proofread` actions
+  only. Injected rather than imported because `SelectionActions` deliberately knows nothing about
+  `Proofreading`, and `.proofread`-only because the contract is what makes judgement possible: a
+  proofread promises the same sentence with its errors removed, so a result twice as long has
+  broken it. `.prompt` actions — Summarize, Expand, Make it casual — are supposed to change length
+  and voice and are not judged.
+- A rejected result falls back to whatever the spelling pass earned, or to "no change". Both
+  runners are wired: the toolbar's and the Try-it button's, since a test button that takes a
+  different path from the thing it tests is worse than no test button.
+- Worth stating plainly, because it is the third one in this stretch: the bug was not a missing
+  mechanism. The mechanism existed, was well made, well documented, and was simply not connected
+  to this path — the same failure as ADR-135 (a guard on a property nothing wrote), ADR-140 (a
+  view never placed) and ADR-159 (a state nothing could reach). Raising a feature's exposure is
+  what makes gaps like this visible; it does not create them.

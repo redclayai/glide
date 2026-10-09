@@ -89,18 +89,32 @@ public struct ActionRunner: ActionRunning {
     /// knows nothing about `NSSpellChecker` or `Proofreading`.
     public typealias SpellingCorrector = @Sendable (_ text: String) async -> String
 
+    /// Judges a proofreading result. Returns the text to use, or nil to reject the model's answer.
+    ///
+    /// Only `.proofread` actions are put through it, and that is the point: a proofread promises
+    /// to return the same sentence with its errors removed, so a result that is twice as long or
+    /// in a different voice has broken the contract and can be recognised as such. `.prompt`
+    /// actions — Summarize, Expand, Make it casual — legitimately do all of those things and are
+    /// not judged.
+    ///
+    /// Injected, like the others, because this package knows nothing about `Proofreading`.
+    public typealias ProofreadGate = @Sendable (_ candidate: String, _ original: String) -> String?
+
     private let policy: ExecutionPolicy
     private let model: ModelResponder?
     private let spelling: SpellingCorrector?
+    private let proofreadGate: ProofreadGate?
 
     public init(
         policy: ExecutionPolicy = ExecutionPolicy(),
         spelling: SpellingCorrector? = nil,
-        model: ModelResponder? = nil
+        model: ModelResponder? = nil,
+        proofreadGate: ProofreadGate? = nil
     ) {
         self.policy = policy
         self.model = model
         self.spelling = spelling
+        self.proofreadGate = proofreadGate
     }
 
     public func run(_ action: SelectionAction, on context: SelectionContext) async throws -> ActionResult {
@@ -135,7 +149,21 @@ public struct ActionRunner: ActionRunning {
                 return spelled
             }
             do {
-                return try await model(instruction, action.fewShot, spelled)
+                let raw = try await model(instruction, action.fewShot, spelled)
+                // Untrusted until judged. The on-device model is a base model (ADR-138) and on
+                // text that needs no correction it tends to echo the input and keep going:
+                // "The report was sent to the client on Monday." came back as that sentence
+                // twice. Pressing Grammar and seeing that is a disappointment; having it proposed
+                // automatically on every selection is the feature being wrong at you.
+                if let proofreadGate {
+                    guard let accepted = proofreadGate(raw, spelled) else {
+                        // Keep what the spelling pass earned; otherwise this was a no-op.
+                        guard spelled != context.text else { throw ActionError.unchanged }
+                        return spelled
+                    }
+                    return accepted
+                }
+                return raw
             } catch {
                 // Same reasoning when the model fails mid-flight: keep what the spell pass earned.
                 guard spelled != context.text else { throw error }

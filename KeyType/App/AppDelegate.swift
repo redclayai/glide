@@ -201,7 +201,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         case let .success(result): return result
                         case let .failure(error): throw error
                         }
-                    }
+                    },
+                    // The Try-it button runs the same runner the toolbar does, and that has to
+                    // include the gate, or the button reports a result the toolbar would refuse.
+                    proofreadGate: SelectionRewriteController.proofreadGate
                 )
             }
         )

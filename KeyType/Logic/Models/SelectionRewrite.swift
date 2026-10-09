@@ -1272,8 +1272,26 @@ final class SelectionRewriteController {
         ActionRunner(
             policy: ExecutionPolicy(allowsCodeExecution: allowsCodeExecution()),
             spelling: spellingCorrector,
-            model: modelResponder
+            model: modelResponder,
+            proofreadGate: Self.proofreadGate
         )
+    }
+
+    /// The same judgement the inline proofreader applies to model output, finally applied here too.
+    ///
+    /// `ModelRewriteGate` was written to keep that feature trustworthy and the selection actions
+    /// never went through it — survivable while Grammar was a button someone pressed and read,
+    /// and not survivable once the pass runs on every selection. Measured on this machine: asked
+    /// to correct "The report was sent to the client on Monday.", a sentence with nothing wrong
+    /// with it, the model returned that sentence twice, and the card offered the duplication as a
+    /// correction.
+    static let proofreadGate: ActionRunner.ProofreadGate = { raw, original in
+        let candidate = ModelRewriteGate.unwrap(raw)
+        guard ModelRewriteGate.accepts(candidate: candidate, original: original) else {
+            RewriteLog.write("proofread gate rejected: \(candidate.prefix(80))")
+            return nil
+        }
+        return candidate
     }
     private let log = Logger(subsystem: "com.pattonium.KeyType", category: "rewrite")
 
