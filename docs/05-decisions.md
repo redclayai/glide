@@ -4776,3 +4776,11 @@ text. Both are now closed:
   can grant. So the decision ships with a diagnostic instead of a proof: every suppressed
   selection logs `poll: selection is not editable — role=… selText=… value=…`, which turns the
   first real use into the measurement.
+- **Measured, the same day.** Two roles refused in real use — `AXWebArea`, a web page body, and
+  `AXGroup`, read-only content — both with `selText=false value=false`. In the same window five
+  editable selections still raised the card, so it discriminates rather than blanket-blocking.
+  The clearest evidence is in the heartbeats rather than the refusals: a drag-select across a page
+  in a browser grew 171 → 644 → 839 → 1360 → 1844 characters and raised nothing, where before it
+  would have raised a card on every tick. Note when reading the log that the refusal line is
+  deduplicated against the last one, so a handful of entries can represent a great many
+  suppressions.
