@@ -261,7 +261,11 @@ final class SettingsStore {
         self.developerOverrideTuningEnabled = defaults.bool(forKey: Key.developerOverrideTuningEnabled)
         // Default ON: absent key reads as enabled.
         self.selectionActionsEnabled = defaults.object(forKey: Key.selectionActionsEnabled) as? Bool ?? true
-        self.selectionAutoCheckEnabled = defaults.object(forKey: Key.selectionAutoCheckEnabled) as? Bool ?? true
+        // Off unless asked for. It froze a machine on its first outing (ADR-161): the pass was
+        // uncancellable and queued one inference per selection. That is fixed, but a feature that
+        // spends the on-device model every time anyone selects anything should be something a
+        // user turns on, not something they discover.
+        self.selectionAutoCheckEnabled = defaults.object(forKey: Key.selectionAutoCheckEnabled) as? Bool ?? false
         self.proofreadEnabled = defaults.object(forKey: Key.proofreadEnabled) as? Bool ?? true
         self.aiGrammarEnabled = defaults.object(forKey: Key.aiGrammarEnabled) as? Bool ?? true
         self.logsCapturedText = defaults.object(forKey: Key.logsCapturedText) as? Bool ?? false

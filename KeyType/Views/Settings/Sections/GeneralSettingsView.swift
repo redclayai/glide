@@ -56,7 +56,7 @@ struct GeneralSettingsView: View {
 
                 Toggle("Check spelling and grammar as soon as I select", isOn: $settings.selectionAutoCheckEnabled)
                     .disabled(!settings.selectionActionsEnabled)
-                Text("The card opens with the correction already in it, instead of waiting for you to press Grammar. Spelling is instant and offline; the grammar pass runs the on-device model, so turn this off if you would rather it only ran when asked.")
+                Text("The card opens with the correction already in it, instead of waiting for you to press Grammar. Spelling is instant and offline. The grammar pass runs the on-device model on every selection, which costs a few seconds of CPU each time — leave this off if you would rather Glide only worked when asked.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
