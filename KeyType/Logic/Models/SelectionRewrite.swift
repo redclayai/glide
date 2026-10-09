@@ -1651,6 +1651,7 @@ final class SelectionRewriteController {
     // MARK: - Selection detection (AX poll)
 
     private var lastHeartbeat = ""
+    private var lastEditabilityReport = ""
 
     private func poll() {
         // Checked first, deliberately: every other dismissal rule sits behind a guard that can
@@ -1686,6 +1687,22 @@ final class SelectionRewriteController {
         if hb != lastHeartbeat { RewriteLog.write("poll hb: \(hb)"); lastHeartbeat = hb }
 
         if snap?.context.traits.isSecureTextEntry == true { hide(); return }
+
+        // Only where the text can actually be replaced.
+        //
+        // Selecting a sentence in a web page, a received mail or a log used to raise the card,
+        // which then offered to correct text the user has no way of changing. The hotkeys are
+        // unaffected: ⌃⌥A copies the selection and works anywhere, which is the right answer for
+        // reading something and wanting to do something with it.
+        if !trimmed.isEmpty, let rawEl, !AX.isEditable(rawEl) {
+            let description = AX.editabilityDescription(rawEl)
+            if description != lastEditabilityReport {
+                RewriteLog.write("poll: selection is not editable — \(description)")
+                lastEditabilityReport = description
+            }
+            if shownSelection != nil { hide() }
+            return
+        }
         // If focus moved to a *different* app than the one the popover is shown for, dismiss now.
         if shownSelection != nil, let bundle, let shown = shownBundle, bundle != shown,
            !bundle.hasPrefix("app.glide") {
@@ -2363,6 +2380,56 @@ private enum AX {
         // The timeout is per-element, so the focused element needs its own.
         AXUIElementSetMessagingTimeout(element, messagingTimeout)
         return element
+    }
+
+    /// Whether the selection in `element` is something the user could type over.
+    ///
+    /// The card's whole offer is "replace this with a better version", which is nonsense on text
+    /// that cannot be replaced — a web page, a received mail, a log. Offering it there is most of
+    /// what "it is in the way" means: the card appears for every selection anywhere, and for most
+    /// of them there is nothing it could do.
+    ///
+    /// Three signals, in order of authority. `AXSelectedText` being settable is the exact question
+    /// — it is the attribute the replacement writes to. `AXValue` being settable is the same
+    /// question one level out, for elements that expose the value but not the selection. The role
+    /// check is the fallback that keeps the apps where accessibility writes fail but a clipboard
+    /// paste works (ADR-133): those report nothing settable and are still perfectly editable, and
+    /// dropping them would be a worse regression than the bug being fixed.
+    ///
+    /// `AXReadOnly` overrides all three, because an element that says so is answering directly.
+    static func isEditable(_ element: AXUIElement) -> Bool {
+        var readOnly: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, "AXReadOnly" as CFString, &readOnly) == .success,
+           let flag = readOnly as? Bool, flag {
+            return false
+        }
+        if settable(element, kAXSelectedTextAttribute as String) { return true }
+        if settable(element, kAXValueAttribute as String) { return true }
+        return editableRoles.contains(string(element, kAXRoleAttribute as String) ?? "")
+    }
+
+    /// Roles that mean "the user types here", for the apps that will not say so themselves.
+    /// `AXStaticText` and `AXWebArea` are deliberately absent: those are the read-only cases.
+    static let editableRoles: Set<String> = [
+        kAXTextFieldRole as String,
+        kAXTextAreaRole as String,
+        kAXComboBoxRole as String,
+        "AXSearchField",
+    ]
+
+    static func settable(_ element: AXUIElement, _ attr: String) -> Bool {
+        var flag = DarwinBoolean(false)
+        guard AXUIElementIsAttributeSettable(element, attr as CFString, &flag) == .success else {
+            return false
+        }
+        return flag.boolValue
+    }
+
+    /// What the editability decision was made on, for the log.
+    static func editabilityDescription(_ element: AXUIElement) -> String {
+        let role = string(element, kAXRoleAttribute as String) ?? "?"
+        return "role=\(role) selText=\(settable(element, kAXSelectedTextAttribute as String))"
+            + " value=\(settable(element, kAXValueAttribute as String))"
     }
 
     static func string(_ element: AXUIElement, _ attr: String) -> String? {

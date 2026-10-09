@@ -4746,3 +4746,33 @@ text. Both are now closed:
 - Verified after: ⌃⌥G fires through the relocated tap and pastes its correction, Escape dismisses
   without crashing, and slow polls continue to be logged while no longer being able to delay a
   keystroke.
+
+## ADR-163 — The card is only for text that can be replaced
+
+- Date: 2026-10-09
+- Status: accepted
+- Context: "I think this should only open when I select editable text." The card appeared for any
+  selection anywhere — a web page, a received mail, a log, a chat transcript — and its entire
+  offer is "replace this with a better version". On read-only text there is nothing it could do,
+  so most of the times it appeared it was purely in the way. That is a large part of what "it is
+  in the way" meant.
+- Decision: the poll requires an editable selection. Three signals, in order of authority:
+  `AXSelectedText` being settable, which is the exact question since it is the attribute a
+  replacement writes to; `AXValue` being settable, the same question one level out; and failing
+  both, a role in {AXTextField, AXTextArea, AXComboBox, AXSearchField}. `AXReadOnly` overrides all
+  three. `AXStaticText` and `AXWebArea` are deliberately absent from the role set — those are the
+  read-only cases this exists to exclude.
+- The role fallback is not decoration. Apps where an accessibility write fails but a clipboard
+  paste works (ADR-133) report nothing settable and are still perfectly editable; gating purely on
+  settability would have silently removed the card from them, which is a worse regression than the
+  bug being fixed.
+- The hotkeys are untouched. ⌃⌥A copies the selection and works everywhere, which is the right
+  answer for reading something and wanting to act on it.
+- **Verification is incomplete and the gap is recorded rather than papered over.** That the card
+  still appears on editable text is confirmed. That it is suppressed on read-only text is *not*:
+  three attempts were confounded on a live machine — one by a dismissal left over from pressing
+  Escape on identical text, two by other applications taking focus mid-test. An unsigned probe
+  binary could not be used instead, because Accessibility reads need a permission only the user
+  can grant. So the decision ships with a diagnostic instead of a proof: every suppressed
+  selection logs `poll: selection is not editable — role=… selText=… value=…`, which turns the
+  first real use into the measurement.
