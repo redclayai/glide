@@ -133,6 +133,15 @@ actor RewriteService {
             // Tokenize with special-token parsing so the ChatML markers (`<|im_start|>`, `<think>`,
             // …) become their single control tokens rather than literal text.
             let promptTokens = try rt.tokenizer.tokenizeAllowingSpecial(prompt)
+            // Cancellation, checked here and in the decode loop below.
+            //
+            // Without it, cancelling the Swift task that is awaiting this stops nothing: the
+            // prefill and up to 320 decodes run to completion inside the actor regardless. That
+            // was survivable when a rewrite only happened because someone pressed a button. Once
+            // the automatic pass started one per selection, every superseded selection left a
+            // full inference still running, they queued on the actor, and the machine locked up
+            // under a backlog of work nobody was waiting for any more.
+            try Task.checkCancellation()
             await rt.resetKVCache()
             try await rt.prepare(promptTokens: promptTokens)
 
@@ -149,6 +158,7 @@ actor RewriteService {
             let maxTokens = min(320, max(64, trimmed.count * 2))
             var produced: [TokenID] = []
             for _ in 0..<maxTokens {
+                try Task.checkCancellation()
                 let logits = try await rt.logitsForNextToken()
                 guard let best = logits.lazy
                     .filter({ !banned.contains($0.tokenID) })
@@ -169,6 +179,9 @@ actor RewriteService {
             let result = Self.clean(raw)
             RewriteLog.write("rewrite[\(style)] in=\(RewriteLog.text(trimmed)) tokens=\(produced.count) raw=\(RewriteLog.text(raw)) -> \(RewriteLog.text(result))")
             return result
+        } catch is CancellationError {
+            RewriteLog.write("rewrite cancelled")
+            return nil
         } catch {
             log.error("rewrite failed: \(String(describing: error), privacy: .public)")
             return nil
@@ -417,6 +430,10 @@ final class SelectionRewritePopover: NSPanel {
         collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
         isMovable = false
         hidesOnDeactivate = false
+        // `becomesKeyOnlyIfNeeded` was tried here and is wrong for this panel: a
+        // `.nonactivatingPanel` belonging to a background app never becomes key under it, so
+        // clicking the instruction field did nothing and typing went on to the document. The
+        // focus problem it was meant to solve is in `hide()`, not here.
         // Pinned to Aqua. The card is a light surface in every appearance, so a system control
         // inside it that resolved to Dark Mode would draw white text on white.
         appearance = NSAppearance(named: .aqua)
@@ -1264,6 +1281,8 @@ final class SelectionRewriteController {
     /// it finishes well after the user has moved on, having spent the whole time running.
     private static let autoCheckMinimumLength = 12
     private static let autoCheckMaximumLength = 1200
+    /// How long a selection must stand still before the model is asked about it.
+    private static let autoCheckSettleMilliseconds = 700
 
     /// Built per run, not once at init. The policy is enforced at execution rather than at display,
     /// so turning "allow commands and scripts" on takes effect on the next click instead of the next
@@ -1811,8 +1830,18 @@ final class SelectionRewriteController {
         pendingKey = nil
         presentedAnchor = nil
         replacesByPasting = false
-        // Never strand the user in Glide because they opened the field and changed their mind.
-        appBeforeAsking?.activate()
+        // Give focus back only if we are holding it.
+        //
+        // This restores the app that was frontmost when the card appeared, so that someone who
+        // clicked into the instruction field and changed their mind is not left in Glide. But it
+        // ran unconditionally, and `hide()` is mostly called by the timeout, long after the user
+        // has moved on. The card appears in Mail, the user switches to another app and starts
+        // typing, the card times out fifteen seconds later — and Mail is yanked to the front
+        // mid-sentence. That is "it takes over my typing", and the automatic pass made it happen
+        // after almost every selection rather than once in a while.
+        if NSRunningApplication.current.isActive {
+            appBeforeAsking?.activate()
+        }
         appBeforeAsking = nil
         popover.orderOut(nil)
     }
@@ -1946,6 +1975,15 @@ final class SelectionRewriteController {
                     solicited: false
                 )
             }
+
+            // Settle before spending the model on it.
+            //
+            // The poller reports a new selection four times a second, and dragging across a
+            // paragraph produces a different one on every tick. Each was a model call. They are
+            // cancellable now, but the cheapest inference is the one never started, and nobody
+            // wants a rewrite of the half-sentence they were still dragging over.
+            try? await Task.sleep(for: .milliseconds(Self.autoCheckSettleMilliseconds))
+            guard stillCurrent() else { return }
 
             do {
                 let result = try await self.runner.run(grammar, on: context)

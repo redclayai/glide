@@ -4679,3 +4679,34 @@ text. Both are now closed:
   to this path — the same failure as ADR-135 (a guard on a property nothing wrote), ADR-140 (a
   view never placed) and ADR-159 (a state nothing could reach). Raising a feature's exposure is
   what makes gaps like this visible; it does not create them.
+
+## ADR-161 — Generation had to become interruptible before it could be automatic
+
+- Date: 2026-10-09
+- Status: accepted
+- Context: "machine is freezing when loading. Seems to also take over my typing like it takes
+  focus." Two separate faults, both created by ADR-155 and both the same mistake underneath —
+  behaviour that was tolerable once per button press became intolerable once per selection.
+- **The freeze.** `RewriteService` is an actor, so inference was never on the main thread; that is
+  not what locked the machine up. The decode loop had no cancellation check anywhere in it, so
+  `autoCheck?.cancel()` stopped nothing: the prefill and up to 320 decodes ran to completion
+  inside the actor regardless of whether anyone was still waiting. The poller reports a new
+  selection four times a second, so dragging across a paragraph enqueued a full inference per
+  tick, they serialised on the actor, and the machine ground through a backlog of work that had
+  been superseded seconds earlier.
+  - `try Task.checkCancellation()` before the prefill and on every decode, and a settle delay of
+    700ms before the model is asked at all — the cheapest inference is the one never started.
+  - Measured after: eight rapid selection changes produced five starts, three cancellations
+    mid-inference and one completion. Before, all five would have run to the end.
+- **The focus theft.** `hide()` called `appBeforeAsking?.activate()` unconditionally. That exists
+  so someone who clicks into the instruction field and changes their mind is not stranded in
+  Glide — but `hide()` is mostly called by the fifteen-second timeout, long after the user has
+  moved on. The card appears in Mail, the user switches to another app and starts typing, the
+  card times out, and Mail is yanked to the front mid-sentence. Now guarded on
+  `NSRunningApplication.current.isActive`: give focus back only when we are holding it.
+- Recorded because it was tried and is wrong: `becomesKeyOnlyIfNeeded = true` looks like the fix
+  for a panel stealing the keyboard, and for this panel it is not. A `.nonactivatingPanel`
+  belonging to a background app never becomes key under it, so clicking the instruction field did
+  nothing at all and the keystrokes went on to the document. Verified both ways — with it set, the
+  field could not be typed into; reverted, "make it formal" lands in the field and the document is
+  untouched.
