@@ -156,6 +156,20 @@ actor RewriteService {
             let banned = Self.bannedTokenIDs(rt)
 
             let maxTokens = min(320, max(64, trimmed.count * 2))
+            // The base model restarts its input rather than stopping.
+            //
+            // Measured: a 108-character sentence produced 214 tokens — the entire budget — by
+            // answering once and then beginning the same sentence again, and the answer only
+            // survived if the budget happened to cut the repeat off cleanly. That is what "it
+            // sometimes doesn't render the recommended changes" is: the duplicate reached the
+            // output gate (ADR-160) and was rejected, correctly, as not being a correction.
+            //
+            // A base model has no reason to emit an end-of-turn marker (ADR-138), so the stop has
+            // to be the repeat itself. Watching for the opening of the input appearing a second
+            // time catches it without assuming anything about length — Summarize shortens and
+            // Expand lengthens, and neither should be constrained here.
+            let echoProbe = String(trimmed.prefix(40))
+            var cutAtSecondCopy: String?
             var produced: [TokenID] = []
             for _ in 0..<maxTokens {
                 try Task.checkCancellation()
@@ -174,15 +188,34 @@ actor RewriteService {
                    text.contains("\n") {
                     break
                 }
+
+                // Checked every eighth token rather than every one: detokenising the whole run is
+                // not free, and eight tokens of overshoot costs nothing.
+                if echoProbe.count >= 16, produced.count % 8 == 0,
+                   let text = try? rt.tokenizer.detokenize(produced),
+                   let firstCopy = text.range(of: echoProbe),
+                   let secondCopy = text.range(of: echoProbe, range: firstCopy.upperBound..<text.endIndex) {
+                    cutAtSecondCopy = String(text[text.startIndex..<secondCopy.lowerBound])
+                    break
+                }
             }
-            let raw = (try? rt.tokenizer.detokenize(produced)) ?? ""
+            let raw = cutAtSecondCopy ?? (try? rt.tokenizer.detokenize(produced)) ?? ""
             let result = Self.clean(raw)
+            if result?.isEmpty ?? true {
+                RewriteLog.write(
+                    "rewrite[\(style)] EMPTY — produced \(produced.count) tokens, raw=\(RewriteLog.text(raw))"
+                )
+            }
             RewriteLog.write("rewrite[\(style)] in=\(RewriteLog.text(trimmed)) tokens=\(produced.count) raw=\(RewriteLog.text(raw)) -> \(RewriteLog.text(result))")
             return result
         } catch is CancellationError {
             RewriteLog.write("rewrite cancelled")
             return nil
         } catch {
+            // Into the file as well as os_log. "The on-device model returned nothing" is what the
+            // caller reports, and it says nothing about why; the actual error was only ever going
+            // to a subsystem log that was not being collected.
+            RewriteLog.write("rewrite[\(style)] FAILED — \(String(describing: error))")
             log.error("rewrite failed: \(String(describing: error), privacy: .public)")
             return nil
         }

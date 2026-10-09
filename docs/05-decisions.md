@@ -4823,3 +4823,32 @@ text. Both are now closed:
   you for your help.") with no tab character inserted, so the key is still correctly swallowed.
   Typing was clean across seven of eight synthetic runs; the eighth dropped a character and did
   not reproduce, so it is recorded as unexplained rather than fixed.
+
+## ADR-165 — Stop the base model when it starts its input again
+
+- Date: 2026-10-09
+- Status: accepted
+- Context: "this is sometimes not rendering the recommended changes." The card showed its buttons
+  and no correction. The log said `The on-device model returned nothing`, which is what the
+  caller reports for any failure and says nothing about the cause — the real error was going to a
+  subsystem log that was not being collected, so the first change was to write it to the file
+  everything else uses.
+- Cause, visible once the token counts were read rather than skimmed: a 108-character sentence
+  produced **214 tokens**, against a budget of 216. The model answered correctly in about forty
+  tokens and then began the same sentence over again, filling the budget. Whether anything
+  survived depended on where the cap happened to fall — a clean cut left a usable answer, a cut
+  mid-repeat left something the output gate (ADR-160) rejected as not a correction. That is the
+  "sometimes".
+- A base model has no reason to emit an end-of-turn marker (ADR-138), so neither EOS nor
+  `<|im_end|>` ever arrives and the only real stop was the budget.
+- Decision: watch for the first forty characters of the input appearing a second time in the
+  output, and cut there. Checked every eighth token, because detokenising the whole run is not
+  free and eight tokens of overshoot costs nothing. Deliberately not a length limit: Summarize
+  shortens and Expand lengthens, and a rule about output length would be wrong for both, while
+  "it has started the input again" is wrong for none of them.
+- Measured on the reported sentence: **40 tokens instead of 214, and 3 seconds instead of 17**,
+  for the identical correction. A second case cut a newline-separated repeat at 132 tokens and
+  also returned clean text.
+- Still unexplained: two earlier runs failed with a thrown error rather than a repeat. That path
+  now writes the error to the log, but it has not recurred since, so the cause is unknown and is
+  recorded as such rather than assumed to be this.
