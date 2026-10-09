@@ -1101,8 +1101,17 @@ final class SelectionRewritePopover: NSPanel {
         ignoresMouseEvents = value
     }
 
+    /// Re-place a panel that is already on screen, because its contents changed size.
+    ///
+    /// Only one that is already on screen. `lastPresentedRect` is the anchor of whatever was shown
+    /// *last* — which, for a card that is not currently up, belongs to a previous selection
+    /// somewhere else entirely. Presenting at it made the panel visible in the wrong place, and
+    /// the poller's "a visible panel does not move under the pointer" rules then saw a visible
+    /// panel and declined to move it to the selection that had just been made. The card appeared
+    /// in the corner of the screen, or not where anyone was looking, which is "it is not
+    /// consistently popping up".
     private func represent() {
-        guard let rect = lastPresentedRect else { return }
+        guard isVisible, let rect = lastPresentedRect else { return }
         present(aboveScreenRect: rect)
     }
 
@@ -1946,6 +1955,28 @@ final class SelectionRewriteController {
                 // became worth looking at.
                 self.shownAt = Date()
                 RewriteLog.write("autocheck done spelling=\(spellingChanged) grammar=\(changed)")
+            } catch ActionError.unchanged {
+                // Not a failure: the runner reports "no change" as an error so that a caller can
+                // tell it apart from a rewrite, and for the automatic pass it is the answer. Seen
+                // in the log as "autocheck grammar failed — No change suggested." on text that was
+                // simply already correct, where the card then fell back to its buttons and the
+                // well-written badge was never reachable.
+                guard stillCurrent() else { return }
+                self.shownAt = Date()
+                if !spellingChanged {
+                    self.popover.showClean(
+                        title: "This text is well-written",
+                        detail: "To see a different version, choose a rewrite above."
+                    )
+                } else {
+                    self.popover.showDiff(
+                        title: "Corrected spelling",
+                        original: context.text,
+                        replacement: spelled,
+                        solicited: false
+                    )
+                }
+                RewriteLog.write("autocheck done spelling=\(spellingChanged) grammar=false")
             } catch {
                 // The spelling diff, if there is one, is a real correction and stays. Otherwise the
                 // card goes back to its actions: an automatic pass that nobody asked for has not

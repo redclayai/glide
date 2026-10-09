@@ -4610,3 +4610,43 @@ text. Both are now closed:
   moment after an accept is quiet. Not exercised end-to-end — synthetic clicks do not reach this
   panel's buttons and have produced false conclusions here before (ADR-119), so this rests on the
   mechanism being the one Escape already uses rather than on a measurement.
+
+## ADR-158 — Never re-present a panel that is not on screen
+
+- Date: 2026-10-09
+- Status: accepted
+- Context: "It is not consistently popping up." It was popping up every time — in the wrong place.
+  The screenshot showed the card in the top-left corner of the display while the selection it was
+  for sat in a mail compose window in the middle of the screen.
+- Cause, mine, from ADR-157. Dropping a stale body has to re-present, because `render()` rebuilds
+  the views but the window keeps its size. `represent()` presents at `lastPresentedRect` — the
+  anchor of whatever was shown *last*, which for a card that is not currently up belongs to a
+  previous selection somewhere else entirely. So the panel became visible at the old anchor, and
+  the poller's two "a visible panel does not move under the pointer" rules (ADR-144) then saw a
+  visible panel and declined to move it to the selection that had just been made. Both rules are
+  correct; they were being handed a panel that had no business being visible yet.
+- Decision: `represent()` requires `isVisible`. Re-placing a panel because its contents changed
+  size is only ever meaningful for one already on screen, and every other caller — `showDiff`,
+  `showWorking`, `showClean` — is already in that position. The caller that presents for the first
+  time does so explicitly, a few lines later, with the correct anchor.
+- The shape of this is worth noting alongside ADR-157, because it is the same shape twice in two
+  commits: a guard written for one situation ("do not disturb a card the user is using") met a
+  state its author had not pictured ("a card that is not up at all"), and in both cases the fix
+  was to make the guard's precondition explicit rather than to weaken the guard.
+
+## ADR-159 — "No change" is an answer, not an error
+
+- Date: 2026-10-09
+- Status: accepted
+- Context: the log read `autocheck grammar failed — No change suggested.` on a sentence that was
+  simply already correct. `ActionError.unchanged` exists so a caller can tell a rewrite from a
+  no-op, which is right, but the automatic pass treated every thrown error alike and fell back to
+  the buttons.
+- Consequence: the "This text is well-written" state was all but unreachable. It only appeared
+  when the model returned text that differed from the input in whitespace alone; the ordinary way
+  to find out that nothing needs changing — the runner saying so — took the error path instead.
+  A state that nothing can reach is the failure mode this project keeps meeting (ADR-135,
+  ADR-140), and here it was introduced in the same commit that added the state.
+- Decision: `catch ActionError.unchanged` is handled on its own and shows the clean badge, or
+  keeps the spelling diff where spelling found something. Every other error still falls back to
+  the buttons without putting a message in front of someone who did not ask for one.
