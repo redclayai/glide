@@ -29,6 +29,31 @@ public struct SelectionContext: Equatable, Sendable {
     public var looksLikeCode: Bool
 
     public var isMultiline: Bool { lineCount > 1 }
+
+    /// Whether the lines look like a *list* rather than prose.
+    ///
+    /// "Join lines", "Sort lines" and "Remove duplicates" are list operations, and they were
+    /// offered for anything containing a newline — which includes every multi-paragraph email.
+    /// Selecting a message and being offered "Sort lines" as the top suggestion is the whole of
+    /// "it's not consistent in suggestions": the useful actions were pushed out by tools that make
+    /// no sense for the text.
+    ///
+    /// The test is sentence punctuation. A list reads "Milk / Eggs / Bread"; prose ends its lines
+    /// with a full stop, a question mark or a colon. Requiring most lines to lack that separates
+    /// the two without needing to know anything about the content.
+    public var looksLikeList: Bool {
+        let lines = text
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        guard lines.count > 1 else { return false }
+        let sentenceEnders: Set<Character> = [".", "!", "?", ":"]
+        let prose = lines.filter { line in
+            guard let last = line.last else { return false }
+            return sentenceEnders.contains(last)
+        }
+        return prose.count * 2 < lines.count
+    }
     public var isSingleWord: Bool { wordCount == 1 }
     /// Long enough that summarising it is a sensible offer rather than a joke.
     public var isSubstantialProse: Bool { wordCount >= 25 && !looksLikeCode }

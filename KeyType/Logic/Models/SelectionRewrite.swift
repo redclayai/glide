@@ -412,6 +412,8 @@ final class SelectionRewritePopover: NSPanel {
     /// Where the panel was last placed, so a state change can re-present at the same anchor after the
     /// panel changes size.
     private var lastPresentedRect: CGRect?
+    /// Where the card was placed. Cleared on dismissal, and until then it does not move.
+    private var pinnedOrigin: NSPoint?
     /// True while one of this panel's menus is open. `Menu` is a native SwiftUI menu now, so this is
     /// tracked by the panel losing key rather than by bracketing a modal `popUp` call.
     private(set) var isMenuOpen = false
@@ -1046,6 +1048,7 @@ final class SelectionRewritePopover: NSPanel {
     /// Forget the body. Called on dismissal, so the next selection cannot inherit the last one's
     /// proposal.
     func clearBody() {
+        pinnedOrigin = nil
         bodySelection = nil
         currentSelection = nil
         isUnsolicited = false
@@ -1182,6 +1185,24 @@ final class SelectionRewritePopover: NSPanel {
         lastPresentedRect = rect
         layoutIfNeeded()
         setContentSize(contentView?.fittingSize ?? frame.size)
+
+        // A card that is already on screen never moves. Ever.
+        //
+        // This has been fixed three times by making individual callers better behaved — don't
+        // follow the caret, don't re-anchor to the pointer, don't re-present from `setActions` —
+        // and each time another path was found that still moved it. "The prompt bounces around
+        // everywhere when I click on it" is the fourth report. Caller-by-caller discipline
+        // evidently does not hold, so the rule lives here instead, where every path goes through
+        // it: once placed, the origin is fixed until the card is dismissed.
+        //
+        // The origin is the *bottom* left, so keeping it fixed means a card that grows — the
+        // moment a diff replaces the buttons — grows upward, away from the text it is about,
+        // rather than down over it.
+        if isVisible, let pinned = pinnedOrigin {
+            setFrameOrigin(pinned)
+            return
+        }
+
         guard let screen = NSScreen.screens.first(where: { $0.frame.contains(appKitPoint(rect.origin)) }) ?? NSScreen.main else { return }
         let panelSize = frame.size
 
@@ -1214,6 +1235,7 @@ final class SelectionRewritePopover: NSPanel {
         var x = rect.midX - visible.width / 2 - inset
         x = min(max(x, screen.frame.minX + 4 - inset), screen.frame.maxX - visible.width - 4 - inset)
         setFrameOrigin(NSPoint(x: x, y: y))
+        pinnedOrigin = NSPoint(x: x, y: y)
         setBusy(false)
         animateIn(to: NSPoint(x: x, y: y))
         orderFrontRegardless()

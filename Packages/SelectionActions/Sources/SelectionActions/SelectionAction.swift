@@ -330,7 +330,12 @@ public struct ActionConditions: Codable, Equatable, Sendable {
         if let maximumCharacters, context.characterCount > maximumCharacters { return false }
         if let requiresURL, context.containsURL != requiresURL { return false }
         if let requiresEmail, context.containsEmail != requiresEmail { return false }
-        if let requiresMultipleLines, context.isMultiline != requiresMultipleLines { return false }
+        if let requiresMultipleLines {
+            // "Multiple lines" means a list, not merely a newline. Prose has newlines too, and
+            // offering "Sort lines" for an email was crowding the useful actions out of the card.
+            let qualifies = requiresMultipleLines ? context.looksLikeList : !context.isMultiline
+            guard qualifies else { return false }
+        }
         if let requiresCodeLike, context.looksLikeCode != requiresCodeLike { return false }
 
         let bundle = context.bundleIdentifier ?? ""

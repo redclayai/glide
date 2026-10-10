@@ -656,4 +656,33 @@ final class ActionCatalogTests: XCTestCase {
         XCTAssertEqual(ranked.singles.first?.id, "builtin.slugify")
         XCTAssertFalse(ranked.groups.contains { $0.actions.contains { $0.id == "builtin.slugify" } })
     }
+
+    // MARK: - Lists versus prose
+
+    func testLineToolsAreOfferedForAList() {
+        let context = SelectionContext(text: "Milk\nEggs\nBread\nCoffee", bundleIdentifier: "com.apple.TextEdit")
+        XCTAssertTrue(context.looksLikeList)
+        let join = ActionCatalog.builtIns.first { $0.id == "builtin.joinlines" }
+        XCTAssertEqual(join?.conditions.matches(context), true)
+    }
+
+    func testLineToolsAreNotOfferedForProse() {
+        // The reported case: a multi-paragraph email offered "Join lines", "Sort lines" and
+        // "Remove duplicates" as its top suggestions, pushing the useful actions off the card.
+        let email = """
+        Hello,
+
+        As you know, we have started setting aside an hour each day for the girls to work on \
+        homework. Are there particular skills we could help with?
+
+        Thank you for your guidance.
+        """
+        let context = SelectionContext(text: email, bundleIdentifier: "com.google.Chrome")
+        XCTAssertFalse(context.looksLikeList)
+        for id in ["builtin.joinlines", "builtin.sortlines", "builtin.dedupe"] {
+            let action = ActionCatalog.builtIns.first { $0.id == id }
+            XCTAssertEqual(action?.conditions.matches(context), false, "\(id) should not match prose")
+        }
+    }
+
 }
