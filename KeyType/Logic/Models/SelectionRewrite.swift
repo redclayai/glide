@@ -397,6 +397,9 @@ final class SelectionRewritePopover: NSPanel {
     private let cardSurface = NSView()
     private var root: NSView?
     private let stripSubtitleLabel = NSTextField(labelWithString: "")
+    private let stripSpinner = NSProgressIndicator()
+    /// What the strip says when nothing is running, restored when the pass finishes.
+    private var baseStripSubtitle = ""
     /// The instruction field, always present in the tab row rather than hidden behind a button. A
     /// field you can see is a field you remember you have.
     private let askField = NSTextField()
@@ -589,11 +592,24 @@ final class SelectionRewritePopover: NSPanel {
         let spacer = NSView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
+        // Lives in the strip rather than the body, so the action buttons stay usable while it
+        // spins. The body already says "Checking grammar…" under a spelling diff; this is for the
+        // case where spelling found nothing and the card would otherwise sit there looking
+        // finished for the several seconds the model takes.
+        stripSpinner.style = .spinning
+        stripSpinner.controlSize = .small
+        stripSpinner.isDisplayedWhenStopped = false
+        stripSpinner.appearance = NSAppearance(named: .darkAqua)
+        stripSpinner.translatesAutoresizingMaskIntoConstraints = false
+        stripSpinner.widthAnchor.constraint(equalToConstant: 13).isActive = true
+        stripSpinner.heightAnchor.constraint(equalToConstant: 13).isActive = true
+        stripSpinner.isHidden = true
+
         let dismiss = ToolbarDismissButton()
         dismiss.target = self
         dismiss.action = #selector(closeTapped)
 
-        for view in [star, title, dot, stripSubtitleLabel, spacer, dismiss] as [NSView] {
+        for view in [star, title, dot, stripSpinner, stripSubtitleLabel, spacer, dismiss] as [NSView] {
             strip.addArrangedSubview(view)
         }
         // The gap after the star is tighter than the gap between words, and the dot hugs the text
@@ -639,7 +655,21 @@ final class SelectionRewritePopover: NSPanel {
 
     /// The line of context in the dark strip.
     func setStripSubtitle(_ text: String) {
+        baseStripSubtitle = text
         stripSubtitleLabel.stringValue = text
+    }
+
+    /// Show that something is being worked out, without taking the buttons away.
+    func setChecking(_ checking: Bool, label: String = "Checking\u{2026}") {
+        stripSpinner.isHidden = !checking
+        if checking {
+            stripSpinner.startAnimation(nil)
+            stripSubtitleLabel.stringValue = label
+        } else {
+            stripSpinner.stopAnimation(nil)
+            stripSubtitleLabel.stringValue = baseStripSubtitle
+        }
+        strip.setCustomSpacing(6, after: stripSpinner)
     }
 
     // MARK: - State
@@ -1951,6 +1981,7 @@ final class SelectionRewriteController {
         // Forgotten deliberately: re-selecting the same sentence after dismissing the card should
         // check it again, because the user asking twice is the user asking.
         autoCheckedText = nil
+        popover.setChecking(false)
         popover.clearBody()
         if suppressingCurrentSelection, let shown = shownSelection {
             dismissedKey = Self.selectionKey(shown)
@@ -2089,7 +2120,14 @@ final class SelectionRewriteController {
         autoCheck?.cancel()
         RewriteLog.write("autocheck start textLen=\(context.text.count)")
 
+        popover.setChecking(true, label: "Checking spelling\u{2026}")
         autoCheck = Task { @MainActor in
+            // Cleared on every exit — finished, rejected, failed, or superseded. Guarded on the
+            // text so a task that has already been replaced cannot switch off the spinner its
+            // successor just switched on.
+            defer {
+                if self.autoCheckedText == context.text { self.popover.setChecking(false) }
+            }
             // Guards the whole pass: the user may have selected something else, pressed a button,
             // or dismissed the card while a model call was in flight, and none of those should be
             // overwritten by a result for text that is no longer on screen.
@@ -2110,6 +2148,8 @@ final class SelectionRewriteController {
                     solicited: false
                 )
             }
+
+            self.popover.setChecking(true, label: "Checking grammar\u{2026}")
 
             // Settle before spending the model on it.
             //
@@ -2194,6 +2234,7 @@ final class SelectionRewriteController {
     private func cancelAutoCheck() {
         autoCheck?.cancel()
         autoCheck = nil
+        popover.setChecking(false)
     }
 
     private func perform(_ action: SelectionAction) {
