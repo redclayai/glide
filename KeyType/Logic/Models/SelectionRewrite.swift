@@ -901,11 +901,17 @@ final class SelectionRewritePopover: NSPanel {
     @objc private func cancelWork() { onCancel?() }
 
     @objc private func acceptResult() {
+        // Logged before the guard. A click that arrives and does nothing used to be
+        // indistinguishable from a click that never arrived, and the two have completely
+        // different causes — one is this state being empty, the other is the panel not receiving
+        // mouse events at all.
+        RewriteLog.write("Replace pressed (text: \(messageText?.count ?? -1) chars)")
         guard let messageText else { return }
         onAcceptResult?(messageText)
     }
 
     @objc private func copyMessage() {
+        RewriteLog.write("Copy pressed (text: \(messageText?.count ?? -1) chars)")
         guard let messageText else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(messageText, forType: .string)
@@ -1230,6 +1236,12 @@ final class SelectionRewritePopover: NSPanel {
         // rather than down over it.
         if isVisible, let pinned = pinnedOrigin {
             setFrameOrigin(pinned)
+            // Still clear these. The full path below ends with them, and taking a short cut past
+            // it quietly dropped both: `setBusy(false)` is what clears `ignoresMouseEvents`, so a
+            // panel that had ever been made click-through stayed click-through for the rest of
+            // its life — every button dead, and silently, because an ignored click logs nothing.
+            setBusy(false)
+            orderFrontRegardless()
             return
         }
 
