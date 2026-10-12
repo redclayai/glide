@@ -116,6 +116,30 @@ actor RewriteService {
     private var loadedFilename: String?
     private let log = Logger(subsystem: "com.pattonium.KeyType", category: "rewrite")
 
+    /// Load the model before anyone is waiting on it.
+    ///
+    /// The runtime is created lazily inside the first `rewrite`, which means the first correction
+    /// of a session pays for several hundred megabytes going into the GPU. Measured on a
+    /// seventeen-character selection three seconds after a restart: **forty seconds**, spinner
+    /// running the whole time, which the user reasonably read as the machine freezing. Steady
+    /// state for the same work is around three seconds.
+    ///
+    /// So the load happens at launch, in the background, where nothing is blocked by it. It is
+    /// the same memory the first use would have taken anyway — only the timing changes, from
+    /// "while someone waits" to "while nobody does".
+    func warmUp(modelFilename: String) async {
+        guard runtime == nil else { return }
+        let started = CFAbsoluteTimeGetCurrent()
+        do {
+            _ = try runtime(for: modelFilename)
+            RewriteLog.write(String(
+                format: "model warmed in %.1fs", CFAbsoluteTimeGetCurrent() - started
+            ))
+        } catch {
+            RewriteLog.write("model warm-up failed — \(String(describing: error))")
+        }
+    }
+
     func shutdown() async {
         await runtime?.shutdown()
         runtime = nil
@@ -168,6 +192,19 @@ actor RewriteService {
             // to be the repeat itself. Watching for the opening of the input appearing a second
             // time catches it without assuming anything about length — Summarize shortens and
             // Expand lengthens, and neither should be constrained here.
+            // Stop at a newline whenever the input had none.
+            //
+            // A correction of one line is one line. The model does not know that and carries on:
+            // measured on "i think we ar on the same page", it produced the right answer —
+            // "I think we're on the same page." — in about ten tokens and then wrote
+            // "\n\nHere are a few opt…" until it hit the sixty-four token cap. Seven seconds, of
+            // which roughly six were spent on text that was then discarded.
+            //
+            // Conditioned on the input rather than applied always, because a multi-paragraph
+            // selection legitimately contains newlines in its answer and must not be cut at the
+            // first one. `stopsAtNewline` continues to cover the few-shot styles, where the
+            // pattern itself invites a next example.
+            let stopAtNewline = style.stopsAtNewline || !trimmed.contains("\n")
             let echoProbe = String(trimmed.prefix(40))
             var cutAtSecondCopy: String?
             var produced: [TokenID] = []
@@ -183,7 +220,7 @@ actor RewriteService {
                 // A few-shot prompt has nothing to stop it continuing the pattern with another
                 // "Original: … Corrected: …" pair, so end the answer at its newline instead of
                 // generating (and paying for) the rest of the budget.
-                if style.stopsAtNewline,
+                if stopAtNewline,
                    let text = try? rt.tokenizer.detokenize(produced),
                    text.contains("\n") {
                     break

@@ -4911,3 +4911,32 @@ text. Both are now closed:
   unit test asserting the exact pair passed — because the app and the test were not running the
   same build. `rejectionReason` now names the failing rule in the log, so the next one is read
   rather than deduced.
+
+## ADR-168 — Making the local model fast enough to keep
+
+- Date: 2026-10-12
+- Status: accepted
+- Context: "keep it local.. it should be able to handle grammar and spelling locally." The
+  immediate evidence against that was a forty-second wait on a seventeen-character selection,
+  with the machine labouring throughout. Two causes, and the first guess was wrong.
+- **Warming the model at launch.** The runtime was created lazily inside the first `rewrite`, so
+  the first correction of a session paid for several hundred megabytes going into the GPU. It now
+  loads three seconds after launch at utility priority, where nothing waits on it. Recorded
+  honestly: measured warm it takes **0.5s**, so this was *not* what the forty seconds were, and
+  the fix is worth keeping for a cold start but did not explain the symptom.
+- **Stopping at a newline when the input had none**, which is what the forty seconds mostly were.
+  A correction of one line is one line; the model does not know that and continues. Measured on
+  "i think we ar on the same page": the right answer — "I think we're on the same page." — arrived
+  in about ten tokens, and it then wrote "\n\nHere are a few opt…" until it hit the sixty-four
+  token cap. Seven seconds, roughly six of them spent on text that was discarded unread.
+  - After: **10 tokens and 2 seconds**, for the identical correction.
+  - Conditioned on the input, not applied always: a multi-paragraph selection legitimately
+    contains newlines in its answer. Verified — "Hi Laura,\n\n…" came back whole, with `i`
+    corrected to `I` and "working this" to "working on this", in 152 tokens and 9 seconds.
+- Where that leaves local: about two seconds for a sentence, about nine for several paragraphs.
+  Slower than a frontier model and now within the range where waiting is reasonable rather than
+  broken, which is what the user asked for.
+- The cloud option asked for alongside it already existed and was not rebuilt: Settings → General
+  → "Answered by", offering Local, Anthropic and Gemini with an API key field, routed through the
+  same `ModelRewriteGate`. Worth recording that it was there, because the instinct on being asked
+  for a feature is to build it.

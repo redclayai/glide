@@ -180,6 +180,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             autoCheckEnabled: { settings.selectionActionsEnabled && settings.selectionAutoCheckEnabled },
             rewriteText: selectionRewriter
         )
+        // Load the rewrite model now, in the background, so the first correction of the session
+        // does not pay for it. Measured before this: forty seconds for a seventeen-character
+        // selection taken moments after a restart, nearly all of it the GGUF going into the GPU.
+        // Low priority and after a pause — nothing waits on this, and it should not compete with
+        // whatever the user is actually doing at launch (ADR-168).
+        if settings.selectionActionsEnabled || settings.aiGrammarEnabled {
+            Task.detached(priority: .utility) {
+                try? await Task.sleep(for: .seconds(3))
+                await rewriteService.warmUp(modelFilename: modelFilename())
+            }
+        }
+
         self.actionsSettings = ActionsSettingsModel(
             store: actionStore,
             settings: settings,
