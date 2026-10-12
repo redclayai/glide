@@ -75,6 +75,32 @@ public enum ModelRewriteGate {
     }
 
     /// Whether `candidate` is an acceptable grammar fix of `original`.
+    /// Why `accepts` said no, for the log. Nil when it said yes.
+    ///
+    /// The gate rejecting a correct answer is indistinguishable, from outside, from the model
+    /// producing a bad one — and both end with the user seeing no suggestion. Naming the rule
+    /// turns "the gate rejected it" into something actionable.
+    public static func rejectionReason(candidate: String, original: String) -> String? {
+        let candidate = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+        let original = original.trimmingCharacters(in: .whitespacesAndNewlines)
+        if candidate.isEmpty { return "empty" }
+        if candidate == original { return "identical" }
+        if candidate.contains("\n") { return "multi-line" }
+        let ratio = Double(candidate.count) / Double(max(original.count, 1))
+        if ratio < minimumLengthRatio || ratio > maximumLengthRatio {
+            return String(format: "length ratio %.2f", ratio)
+        }
+        let candidateSentences = sentenceCount(candidate), originalSentences = sentenceCount(original)
+        if candidateSentences > originalSentences {
+            return "sentences \(candidateSentences) > \(originalSentences)"
+        }
+        let edit = editRatio(candidate: candidate, original: original)
+        if edit > maximumEditRatio { return String(format: "edit ratio %.2f", edit) }
+        let retention = wordRetention(candidate: candidate, original: original)
+        if retention < minimumWordRetention { return String(format: "word retention %.2f", retention) }
+        return nil
+    }
+
     public static func accepts(candidate: String, original: String) -> Bool {
         let candidate = candidate.trimmingCharacters(in: .whitespaces)
         let original = original.trimmingCharacters(in: .whitespaces)
@@ -153,14 +179,30 @@ public enum ModelRewriteGate {
         return Double(distance) / Double(original.count)
     }
 
+    /// Sentences, counting the unterminated one at the end.
+    ///
+    /// Terminator runs alone are not enough. Text that stops without a full stop has a final
+    /// sentence that no terminator marks, and the rule above — "the model must not have started a
+    /// sentence of its own" — then reads a *supplied* full stop as an invented sentence. Measured
+    /// on a real rejection: "Ok thanks.. i think we ar o n the same page" counted as one sentence
+    /// because `..` is a single run and the rest is unterminated, while the correct answer
+    /// "Ok, thanks. I think we are on the same page." counted as two, so the gate threw away a
+    /// perfect correction for adding the punctuation that was missing.
     static func sentenceCount(_ text: String) -> Int {
         var count = 0
         var previousWasTerminator = false
+        var contentSinceTerminator = false
         for character in text {
             let isTerminator = TrailingSentenceScanner.terminators.contains(character)
-            if isTerminator, !previousWasTerminator { count += 1 }
+            if isTerminator {
+                if !previousWasTerminator { count += 1 }
+                contentSinceTerminator = false
+            } else if !character.isWhitespace {
+                contentSinceTerminator = true
+            }
             previousWasTerminator = isTerminator
         }
+        if contentSinceTerminator { count += 1 }
         return max(count, 1)
     }
 

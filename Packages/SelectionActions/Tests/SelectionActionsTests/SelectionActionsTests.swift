@@ -685,4 +685,29 @@ final class ActionCatalogTests: XCTestCase {
         }
     }
 
+
+    // MARK: - A rejected suggestion is not a clean bill of health
+
+    func testGateRejectionReportsRejectedRatherThanUnchanged() async {
+        // The distinction decides what the card says. `unchanged` means the engine handed back
+        // the same text, so there was nothing to fix; `rejected` means it answered and we threw
+        // the answer away, so we know nothing. Reporting the second as the first made Glide
+        // announce that badly written text was well written.
+        let runner = ActionRunner(
+            model: { _, _, _ in "something the gate will refuse" },
+            proofreadGate: { _, _ in nil }
+        )
+        let action = ActionCatalog.builtIns.first { $0.id == "builtin.grammar" }!
+        let context = SelectionContext(text: "i think we ar o n the same page", bundleIdentifier: "com.apple.TextEdit")
+        do {
+            _ = try await runner.run(action, on: context)
+            XCTFail("expected the gate rejection to throw")
+        } catch let error as ActionError {
+            XCTAssertEqual(error, .rejected)
+            XCTAssertNotEqual(error, .unchanged)
+        } catch {
+            XCTFail("unexpected error \(error)")
+        }
+    }
+
 }

@@ -127,7 +127,37 @@ final class ModelRewriteGateTests: XCTestCase {
 
     func testSentenceCountIgnoresRepeatedTerminators() {
         XCTAssertEqual(ModelRewriteGate.sentenceCount("One thing."), 1)
-        XCTAssertEqual(ModelRewriteGate.sentenceCount("One thing... really"), 1)
+        XCTAssertEqual(ModelRewriteGate.sentenceCount("One thing..."), 1, "a run of terminators is one")
+        // Changed deliberately, from 1. The run of dots still counts once — that is what this
+        // test is for and it still holds — but "really" is a second, unterminated sentence and
+        // not counting it is the bug that made the gate reject correct punctuation fixes.
+        XCTAssertEqual(ModelRewriteGate.sentenceCount("One thing... really"), 2)
         XCTAssertEqual(ModelRewriteGate.sentenceCount("One. Two."), 2)
     }
+
+    // MARK: - Supplying missing punctuation is a correction, not a new sentence
+
+    func testUnterminatedTrailingTextCountsAsASentence() {
+        XCTAssertEqual(ModelRewriteGate.sentenceCount("Ok thanks.. i think we are on the same page"), 2)
+        XCTAssertEqual(ModelRewriteGate.sentenceCount("One. Two."), 2)
+        XCTAssertEqual(ModelRewriteGate.sentenceCount("No terminator here"), 1)
+        XCTAssertEqual(ModelRewriteGate.sentenceCount("Trailing space after stop. "), 1)
+    }
+
+    func testAcceptsACorrectionThatAddsTheMissingFullStop() {
+        // Rejected in real use: the model's answer was right and the gate threw it away because
+        // supplying the absent full stop looked like inventing a sentence.
+        XCTAssertTrue(ModelRewriteGate.accepts(
+            candidate: "Ok, thanks. I think we are on the same page.",
+            original: "Ok thanks.. i think we ar o n the same page"
+        ))
+    }
+
+    func testStillRejectsAnInventedSecondSentence() {
+        XCTAssertFalse(ModelRewriteGate.accepts(
+            candidate: "He doesn't agree with it. I think he has a point.",
+            original: "He don't agree with it."
+        ))
+    }
+
 }

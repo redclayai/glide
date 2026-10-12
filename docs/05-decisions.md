@@ -4881,3 +4881,33 @@ text. Both are now closed:
   takes the paste tier and still works. The accessibility tier now logs the bundle, role and
   outcome of every attempt, so the next real press will say precisely what happened rather than
   `ok=true`.
+
+## ADR-167 — "Well-written" was a claim Glide could not make
+
+- Date: 2026-10-12
+- Status: accepted
+- Context: `Ok thanks.. i think we ar o n the same page` produced **"This text is well-written"**.
+  Not a missing suggestion — an assertion about the user's writing that was plainly false. Two
+  separate faults, both mine, from the two commits that introduced that state.
+- **A rejected suggestion is not a clean bill of health.** ADR-159 routed `ActionError.unchanged`
+  to the badge, and ADR-160's gate threw exactly that error when it discarded a model answer. So
+  "the model returned your sentence" and "the model answered and we binned it" arrived as the same
+  error and got the same reply. They are opposite: the first means nothing needed fixing, the
+  second means we know nothing. `ActionError.rejected` now distinguishes them, and a rejected
+  answer puts the buttons back and claims nothing.
+- **The gate was rejecting a correct answer.** The log showed the model returning
+  `Ok, thanks. I think we are on the same page.` — exactly right — and the gate refusing it. The
+  rule was "the model must not have started a sentence of its own", and `sentenceCount` counted
+  only terminator runs. The original's `..` is one run and its remaining clause is unterminated,
+  so it scored 1; the correction, having supplied the missing full stop, scored 2. Supplying
+  absent punctuation — a thing the user wants — read as inventing a sentence. Trailing
+  unterminated text now counts as the sentence it is, and the pair is accepted. An invented
+  second sentence is still refused.
+- The copy is weaker now on purpose: **"No changes suggested"**, not "This text is well-written".
+  The only evidence behind the stronger claim is that a 2B base model had nothing to say, and it
+  frequently has nothing to say when there is plenty to say. Matching the reference's wording is
+  not worth telling someone their writing is fine when it is not.
+- Method note. I twice reasoned about which rule was failing and was wrong both times, while a
+  unit test asserting the exact pair passed — because the app and the test were not running the
+  same build. `rejectionReason` now names the failing rule in the log, so the next one is read
+  rather than deduced.

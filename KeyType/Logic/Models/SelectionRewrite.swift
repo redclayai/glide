@@ -1392,7 +1392,11 @@ final class SelectionRewriteController {
     static let proofreadGate: ActionRunner.ProofreadGate = { raw, original in
         let candidate = ModelRewriteGate.unwrap(raw)
         guard ModelRewriteGate.accepts(candidate: candidate, original: original) else {
-            RewriteLog.write("proofread gate rejected: \(candidate.prefix(80))")
+            let reason = ModelRewriteGate.rejectionReason(candidate: candidate, original: original) ?? "?"
+            RewriteLog.write(
+                "proofread gate rejected [\(reason)]: \(candidate.prefix(60))"
+                + " | original: \(original.prefix(60))"
+            )
             return nil
         }
         return candidate
@@ -2191,9 +2195,15 @@ final class SelectionRewriteController {
                     // Both passes found nothing. Worth saying so — it is the answer to the question
                     // the user asked by selecting the sentence — but only once both have run, which
                     // is why it is not said after the spelling pass alone.
+                    // "No changes suggested", not "This text is well-written".
+                    //
+                    // The second is a claim about the user's writing, and the only evidence for
+                    // it is that a 2B base model had nothing to say — which it frequently has
+                    // when there is plenty to say. Announced over "Ok thanks.. i think we ar o n
+                    // the same page", it is the feature actively misleading someone.
                     self.popover.showClean(
-                        title: "This text is well-written",
-                        detail: "To see a different version, choose a rewrite above."
+                        title: "No changes suggested",
+                        detail: "Glide found nothing to fix. Choose a rewrite above for a different version."
                     )
                 }
                 // Restart the visibility clock. The cap counts from when the card appeared, but
@@ -2202,6 +2212,23 @@ final class SelectionRewriteController {
                 // became worth looking at.
                 self.shownAt = Date()
                 RewriteLog.write("autocheck done spelling=\(spellingChanged) grammar=\(changed)")
+            } catch ActionError.rejected {
+                // The model answered and the answer was thrown away. We have nothing to offer and
+                // no basis for saying the text is fine — so the card goes back to its buttons and
+                // claims nothing.
+                RewriteLog.write("autocheck: suggestion rejected by the gate — offering nothing")
+                guard stillCurrent() else { return }
+                self.shownAt = Date()
+                if spellingChanged {
+                    self.popover.showDiff(
+                        title: "Corrected spelling",
+                        original: context.text,
+                        replacement: spelled,
+                        solicited: false
+                    )
+                } else if let ranked = self.lastAutoRanked {
+                    self.popover.setActions(ranked, for: context.text)
+                }
             } catch ActionError.unchanged {
                 // Not a failure: the runner reports "no change" as an error so that a caller can
                 // tell it apart from a rewrite, and for the automatic pass it is the answer. Seen
@@ -2212,8 +2239,8 @@ final class SelectionRewriteController {
                 self.shownAt = Date()
                 if !spellingChanged {
                     self.popover.showClean(
-                        title: "This text is well-written",
-                        detail: "To see a different version, choose a rewrite above."
+                        title: "No changes suggested",
+                        detail: "Glide found nothing to fix. Choose a rewrite above for a different version."
                     )
                 } else {
                     self.popover.showDiff(
@@ -2311,8 +2338,8 @@ final class SelectionRewriteController {
             if result.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 == original.trimmingCharacters(in: .whitespacesAndNewlines) {
                 popover.showClean(
-                    title: "This text is well-written",
-                    detail: "To see a different version, choose another rewrite."
+                    title: "No changes suggested",
+                    detail: "Glide found nothing to fix. Choose a rewrite above for a different version."
                 )
                 return
             }

@@ -44,6 +44,13 @@ public enum ActionError: LocalizedError, Equatable {
     /// selection with itself looks identical to the action doing nothing, and the user deserves to be
     /// told which it was.
     case unchanged
+    /// The engine answered, and the answer was not usable — it failed the proofreading gate.
+    ///
+    /// Emphatically not `unchanged`. "The model returned your sentence" means the sentence is
+    /// fine; "the model returned something we threw away" means we do not know. Conflating them
+    /// made Glide announce "This text is well-written" over `Ok thanks.. i think we ar o n the
+    /// same page`, which is not a missing suggestion but a false claim about the user's writing.
+    case rejected
     case codeExecutionDisabled
     case invalidURL(String)
     case scriptFailed(String)
@@ -54,6 +61,7 @@ public enum ActionError: LocalizedError, Equatable {
         switch self {
         case .emptyResult: return "The action produced no text."
         case .unchanged: return "No change suggested."
+        case .rejected: return "The suggestion wasn't usable."
         case .codeExecutionDisabled: return "Shell and AppleScript actions are turned off in Settings."
         case let .invalidURL(template): return "That action's URL isn't valid: \(template)"
         case let .scriptFailed(message): return message
@@ -157,8 +165,9 @@ public struct ActionRunner: ActionRunning {
                 // automatically on every selection is the feature being wrong at you.
                 if let proofreadGate {
                     guard let accepted = proofreadGate(raw, spelled) else {
-                        // Keep what the spelling pass earned; otherwise this was a no-op.
-                        guard spelled != context.text else { throw ActionError.unchanged }
+                        // Keep what the spelling pass earned; otherwise report that the answer
+                        // was discarded, which is not the same as there being nothing to say.
+                        guard spelled != context.text else { throw ActionError.rejected }
                         return spelled
                     }
                     return accepted
