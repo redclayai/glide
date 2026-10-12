@@ -4852,3 +4852,32 @@ text. Both are now closed:
 - Still unexplained: two earlier runs failed with a thrown error rather than a repeat. That path
   now writes the error to the log, but it has not recurred since, so the cause is unknown and is
   recorded as such rather than assumed to be this.
+
+## ADR-166 — Verify a replacement by finding the text, not by noticing a change
+
+- Date: 2026-10-12
+- Status: accepted
+- Context: "When I click replace.. it is not replacing." In Outlook, with the log reading
+  `accepted preview paste=false ok=true` — the accessibility tier reported a verified success and
+  the message was untouched.
+- The verify loop existed and was the right idea: ADR-133 established that Chromium returns
+  `.success` from an `AXSelectedText` write and discards it, so the replacement path polls the
+  element's value afterwards rather than trusting the setter. Its test, though, was *"is the value
+  different from before"*. In a web-rendered compose view the value is a whole document that
+  shifts for reasons of its own, so something unrelated changed within the timeout and the loop
+  called it a success. That is worse than the failure it was written to catch, because a reported
+  success stops the clipboard tier behind it from ever running.
+- Decision: the test is now whether the value *contains the replacement* — a thirty-character
+  prefix, with whitespace folded, since an editor may reflow what it stores but will not change
+  the words. Only the write landing can satisfy that. Anything else falls through to the paste
+  tier, which works everywhere.
+- Also: apps known to be web-rendered now skip the accessibility tier entirely rather than
+  attempting a write that is known to lie. Worth recording that this does **not** cover the
+  reported case — `AppBundleWebAppClassifier` looks for Electron markers and browser bundle ids,
+  and Outlook is `com.microsoft.Outlook`, a native shell around web views, so it matches neither.
+  Identity-based detection was never going to be the fix here; the stronger verify is.
+- Not verified end to end. The failing path is the card's Replace button, and synthetic clicks do
+  not reach this panel's controls (ADR-119), so what was exercised is the hotkey route, which
+  takes the paste tier and still works. The accessibility tier now logs the bundle, role and
+  outcome of every attempt, so the next real press will say precisely what happened rather than
+  `ok=true`.

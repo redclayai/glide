@@ -1936,6 +1936,22 @@ final class SelectionRewriteController {
         // the header takes key from it, and the result has to be pasted back into whatever had focus
         // before that happened.
         appBeforeAsking = NSWorkspace.shared.frontmostApplication
+
+        // Paste, not an accessibility write, in anything web-rendered.
+        //
+        // `AXSelectedText` returns `.success` in Chromium and discards the write — ADR-133 found
+        // this on the autocomplete side and the replacement path has a verify loop for exactly
+        // that reason. But the verify can only catch a write that changed nothing; in Outlook it
+        // reported `ok=true` and the message was untouched, so something changed that was not the
+        // message. Rather than keep trying to tell a real write from a convincing one, the apps
+        // known to lie go straight to the tier that works everywhere.
+        replacesByPasting = bundle.map {
+            AppBundleWebAppClassifier.shared.isWebBacked(bundleIdentifier: $0)
+        } ?? false
+        if replacesByPasting {
+            RewriteLog.write("replace mode: paste (web-backed \(bundle ?? "?"))")
+        }
+
         lastAutoRanked = ranked
         popover.setActions(ranked, for: selected)
         startAutoCheck(for: actionContext)
@@ -2369,6 +2385,11 @@ final class SelectionRewriteController {
     /// Apply a result the user accepted from the preview.
     @MainActor
     private func acceptPreviewedResult(_ text: String) {
+        RewriteLog.write(
+            "accept: glideActive=\(NSRunningApplication.current.isActive)"
+            + " frontmost=\(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "?")"
+            + " replacesByPasting=\(replacesByPasting)"
+        )
         let ok = replacesByPasting
             ? Self.pasteOverSelection(with: text)
             : Self.replaceSelection(with: text)
@@ -2421,6 +2442,12 @@ final class SelectionRewriteController {
         return true
     }
 
+    /// Whitespace folded to single spaces, for comparing what an editor stored against what was
+    /// written to it. Editors reflow; they do not silently change the words.
+    private static func fold(_ text: String) -> String {
+        text.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).joined(separator: " ")
+    }
+
     private static func replaceSelection(with newText: String) -> Bool {
         // Tier 1: direct AX set on the focused element — taken only when the field's value is
         // observed to change.
@@ -2436,13 +2463,39 @@ final class SelectionRewriteController {
         if let element = AX.focusedElement(),
            let before = AX.string(element, kAXValueAttribute as String),
            AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, newText as CFString) == .success {
+            // Says where the write went, not just that it went somewhere. "Reported success and
+            // nothing changed" and "succeeded, into the wrong element" look identical from here,
+            // and the second is what a card that takes keyboard focus would produce.
+            RewriteLog.write(
+                "replace tier1: bundle=\(AX.bundleID(element) ?? "?")"
+                + " role=\(AX.string(element, kAXRoleAttribute as String) ?? "?")"
+                + " beforeLen=\(before.count)"
+            )
+            // Verify by looking for the text, not by looking for a change.
+            //
+            // "Did the value differ afterwards" was the original test and it is too weak for a
+            // web-rendered view, where the value is a whole document that shifts for reasons of
+            // its own. In Outlook it passed — `ok=true` in the log — while the message was
+            // untouched, which is worse than the failure it was written to catch, because the
+            // clipboard tier behind it never ran.
+            //
+            // Looking for the replacement itself can only be satisfied by the write landing. A
+            // prefix, and whitespace-folded, because an editor may reflow what it stores.
+            let needle = Self.fold(String(newText.prefix(30)))
             var waited: TimeInterval = 0
             while waited < axWriteVerifyTimeout {
-                if AX.string(element, kAXValueAttribute as String) != before { return true }
+                if let now = AX.string(element, kAXValueAttribute as String),
+                   !needle.isEmpty, Self.fold(now).contains(needle) {
+                    RewriteLog.write("replace tier1: text present after \(Int(waited * 1000))ms")
+                    return true
+                }
                 Thread.sleep(forTimeInterval: axWriteVerifyPoll)
                 waited += axWriteVerifyPoll
             }
+            RewriteLog.write("replace tier1: reported success but the text never arrived — pasting")
             // Reported success, changed nothing. Fall through and paste it.
+        } else {
+            RewriteLog.write("replace tier1: not attempted (no element, no value, or setter refused)")
         }
 
         // Tier 2: clipboard paste over the selection (universal).
