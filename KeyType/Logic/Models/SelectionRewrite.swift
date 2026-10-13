@@ -2519,17 +2519,37 @@ final class SelectionRewriteController {
     /// Apply a result the user accepted from the preview.
     @MainActor
     private func acceptPreviewedResult(_ text: String) {
+        let hadKey = popover.isKeyWindow
         RewriteLog.write(
-            "accept: glideActive=\(NSRunningApplication.current.isActive)"
+            "accept: glideActive=\(NSRunningApplication.current.isActive) cardWasKey=\(hadKey)"
             + " frontmost=\(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "?")"
             + " replacesByPasting=\(replacesByPasting)"
         )
-        let ok = replacesByPasting
-            ? Self.pasteOverSelection(with: text)
-            : Self.replaceSelection(with: text)
-        RewriteLog.write("accepted preview paste=\(replacesByPasting) ok=\(ok)")
-        hide()
-        suppressJustApplied(text)
+
+        // Get out of the way before sending ⌘V.
+        //
+        // Clicking Replace makes the card the key window — it has to be able to become key or its
+        // buttons never fire (ADR-119) — and a synthetic ⌘V posted while it holds the keyboard can
+        // be delivered to the card's own instruction field instead of the user's document. The
+        // paste then "succeeds" into a text field nobody is looking at, which is exactly what
+        // "replacing the sentence is still not working" looked like.
+        //
+        // So the card goes away first, focus is handed back to the application that had it, and
+        // the keystroke follows once that has settled.
+        popover.orderOut(nil)
+        badge.orderOut(nil)
+        if hadKey, let app = appBeforeAsking, !app.isActive { app.activate() }
+
+        let settle: TimeInterval = hadKey ? 0.15 : 0
+        DispatchQueue.main.asyncAfter(deadline: .now() + settle) { [weak self] in
+            guard let self else { return }
+            let ok = self.replacesByPasting
+                ? Self.pasteOverSelection(with: text)
+                : Self.replaceSelection(with: text)
+            RewriteLog.write("accepted preview paste=\(self.replacesByPasting) ok=\(ok)")
+            self.hide()
+            self.suppressJustApplied(text)
+        }
     }
 
     /// Don't offer anything about text that was just applied.
@@ -2561,19 +2581,46 @@ final class SelectionRewriteController {
     /// Used by the ⌃⌥A route, where the selection was obtained with ⌘C precisely because the app does
     /// not expose one. Trying the accessibility write first there is not merely wasted — ADR-133
     /// showed a failed attempt can leave the field in a state that breaks what follows.
+    @discardableResult
     private static func pasteOverSelection(with newText: String) -> Bool {
         let pasteboard = NSPasteboard.general
         let saved = pasteboard.string(forType: .string)
         pasteboard.clearContents()
         pasteboard.setString(newText, forType: .string)
+
+        // Read the field before, so the paste can be checked rather than assumed.
+        //
+        // This used to `return true` unconditionally, which is why the log said `ok=true` over a
+        // sentence that had not changed. A function that cannot fail tells you nothing, and it
+        // was the only evidence available for a path that was quietly doing nothing at all.
+        let element = AX.focusedElement()
+        let before = element.flatMap { AX.string($0, kAXValueAttribute as String) }
+
         synthCmd(keyCode: 9) // ⌘V
+
+        var landed = false
+        if let element, before != nil {
+            let needle = fold(String(newText.prefix(30)))
+            var waited: TimeInterval = 0
+            while waited < axWriteVerifyTimeout {
+                if let now = AX.string(element, kAXValueAttribute as String),
+                   !needle.isEmpty, fold(now).contains(needle) { landed = true; break }
+                Thread.sleep(forTimeInterval: axWriteVerifyPoll)
+                waited += axWriteVerifyPoll
+            }
+            RewriteLog.write("paste: landed=\(landed) after \(Int(waited * 1000))ms")
+        } else {
+            // No readable element to check against — report the attempt, not a success.
+            RewriteLog.write("paste: posted, unverifiable (no readable focused element)")
+        }
+
         if let saved {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                 pasteboard.clearContents()
                 pasteboard.setString(saved, forType: .string)
             }
         }
-        return true
+        return landed
     }
 
     /// Whitespace folded to single spaces, for comparing what an editor stored against what was
@@ -2848,9 +2895,12 @@ final class SelectionBadgePanel: NSPanel {
         button.frame = surface.bounds
         button.isBordered = false
         button.title = ""
-        button.image = NSImage(systemSymbolName: "star.fill", accessibilityDescription: "Glide suggestions")?
-            .withSymbolConfiguration(.init(pointSize: 12, weight: .bold))
-        button.contentTintColor = CardStyle.gold
+        // Glide's own icon, not a stand-in symbol. The badge is the app's one mark on someone
+        // else's document; it should be the app's mark.
+        let icon = NSApplication.shared.applicationIconImage
+        icon?.size = NSSize(width: 18, height: 18)
+        button.image = icon
+        button.setAccessibilityLabel("Glide suggestions")
         button.imagePosition = .imageOnly
         button.target = self
         button.action = #selector(openTapped)
@@ -2875,7 +2925,9 @@ final class SelectionBadgePanel: NSPanel {
             ?? NSScreen.main else { return }
         let primaryMaxY = NSScreen.screens.first?.frame.maxY ?? screen.frame.maxY
         let top = primaryMaxY - rect.minY
-        let gap: CGFloat = 8
+        // Tight to the text: the badge marks that sentence, so it reads as belonging to it rather
+        // than floating in the margin.
+        let gap: CGFloat = 4
 
         var x = rect.minX - Self.size - gap
         if x < screen.frame.minX + 4 { x = rect.maxX + gap }

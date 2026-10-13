@@ -4974,3 +4974,39 @@ text. Both are now closed:
 - Verified: badge appears beside the selection, clicking it opens the card at the same anchor and
   starts the pass. The cap fix is reasoned but was not re-exercised — other applications kept
   taking focus on the test machine.
+
+## ADR-170 — Replace was pasting into Glide's own text field
+
+- Date: 2026-10-13
+- Status: accepted
+- Context: "replacing the sentence is still not working.. just did it on this sentence." Two days
+  of looking at the wrong thing, and the log that settled it was only available because the
+  button finally got pressed while instrumented:
+
+      Replace pressed (text: 113 chars)
+      accept: glideActive=false frontmost=com.anthropic.claudefordesktop replacesByPasting=true
+      accepted preview paste=true ok=true
+
+  The button was firing, the paste tier was chosen, and it reported success over an unchanged
+  message. Everything fixed in ADR-166 about the accessibility write was irrelevant to this path.
+- Two faults:
+  - **`pasteOverSelection` returned `true` unconditionally.** It posted ⌘V and said it had worked.
+    A function that cannot fail reports nothing, and it was the only evidence available for a
+    path that was doing nothing at all. It now reads the field before, polls for the replacement
+    text afterwards, and returns whether it arrived.
+  - **The card still held the keyboard when ⌘V was posted.** Clicking Replace makes the card key
+    — it must be able to become key or its buttons never fire (ADR-119) — so a synthetic ⌘V can
+    be delivered to the card's own instruction field rather than the document. The paste then
+    succeeds into a text field nobody is looking at. Confirmed by the log once it was asked the
+    right question: `cardWasKey=true`.
+- Decision: the card orders out, focus goes back to the application that had it, and the
+  keystroke follows 150ms later. Verified end to end in TextEdit, driving the real flow —
+  badge, card, Replace — and the sentence came back corrected: a comma added and `i` raised to
+  `I`.
+- The web-backed paste path is still unverified, because reproducing it means typing into the
+  user's own applications. It shares the fix, and `cardWasKey=true` was the common factor, so
+  the expectation is that it is the same bug; the paste now verifies itself either way and logs
+  `paste: landed=…`.
+- The lesson is about instrumentation, not focus. This was chased through three ADRs on the
+  strength of `ok=true` from a function whose return value was a literal. The first useful minute
+  of work was making the thing admit it could fail.
