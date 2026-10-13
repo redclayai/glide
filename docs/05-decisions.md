@@ -5010,3 +5010,30 @@ text. Both are now closed:
 - The lesson is about instrumentation, not focus. This was chased through three ADRs on the
   strength of `ok=true` from a function whose return value was a literal. The first useful minute
   of work was making the thing admit it could fail.
+
+## ADR-171 — Agreement is an answer
+
+- Date: 2026-10-13
+- Status: accepted
+- Context: "Can you check to make sure the grammar search is working? Nothing is being
+  presented." It was working — the log shows badge, card and a finished pass in two seconds. The
+  sentence was simply already correct:
+
+      -> "Can you check to make sure the grammar search is working?"
+      proofread gate rejected [identical]
+      autocheck: suggestion rejected by the gate — offering nothing
+
+- Cause: `ModelRewriteGate.accepts` refuses an identical candidate, which is right for its own
+  purpose — there is nothing to apply. But ADR-167 routed every refusal down the `rejected` path,
+  whose meaning is "the answer was discarded, so we know nothing", and that correctly says
+  nothing to the user. For an identical answer the correct meaning is the opposite: the model
+  read the sentence and agreed with it.
+- Decision: the gate hands an identical candidate straight back. `ActionRunner.run` then reaches
+  its own equality check, reports `unchanged`, and the card shows "No changes suggested" — the
+  state that exists for precisely this and had become unreachable again by a different route.
+- Third time this distinction has bitten, which is the thing worth noting rather than the fix.
+  ADR-159 made "no change" reachable, ADR-167 separated "rejected" from "unchanged", and this
+  separates "identical" from "rejected". Each time a new way of saying nothing was added, it got
+  attached to the branch that stays silent. A state the user should see has to be reached
+  deliberately from every path that can produce it, and the way to know is a log line per
+  outcome — which is how this one was found in a minute rather than a day.

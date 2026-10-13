@@ -1449,6 +1449,20 @@ final class SelectionRewriteController {
     /// correction.
     static let proofreadGate: ActionRunner.ProofreadGate = { raw, original in
         let candidate = ModelRewriteGate.unwrap(raw)
+
+        // The model agreeing with the user is an answer, not a refusal.
+        //
+        // `accepts` says no to an identical candidate, which is right for its own purpose — there
+        // is nothing to apply. But routing that through the rejection path made it mean "we threw
+        // the answer away", and the card then offered nothing at all for a sentence that was
+        // simply correct. Handing the text back unchanged lets `ActionRunner.run` reach its own
+        // equality check and report `unchanged`, which is what the "No changes suggested" state
+        // exists for.
+        if candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+            == original.trimmingCharacters(in: .whitespacesAndNewlines) {
+            return candidate
+        }
+
         guard ModelRewriteGate.accepts(candidate: candidate, original: original) else {
             let reason = ModelRewriteGate.rejectionReason(candidate: candidate, original: original) ?? "?"
             RewriteLog.write(
