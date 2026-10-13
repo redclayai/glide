@@ -101,6 +101,13 @@ public final class AppBundleWebAppClassifier: @unchecked Sendable {
         fileManager: FileManager = .default
     ) -> Bool {
         let knownMarkerPaths = [
+            // A Chromium fork is web-rendered whether or not it is Electron, and shares the
+            // behaviour that matters here: an `AXSelectedText` write returns `.success` and is
+            // discarded (ADR-133). Detecting the framework catches every such build — Millie
+            // among them, which is `app.millie` with no Electron markers and no entry in the
+            // browser list below, so it was being treated as a native app and its replacements
+            // went nowhere.
+            "Contents/Frameworks/Chromium Framework.framework",
             "Contents/Frameworks/Electron Framework.framework",
             "Contents/Frameworks/Electron Helper.app",
             "Contents/Frameworks/Electron Framework.framework/Resources/electron.asar",

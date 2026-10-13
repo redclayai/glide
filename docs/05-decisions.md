@@ -5037,3 +5037,31 @@ text. Both are now closed:
   attached to the branch that stays silent. A state the user should see has to be reached
   deliberately from every path that can produce it, and the way to know is a log line per
   outcome — which is how this one was found in a minute rather than a day.
+
+## ADR-172 — Millie was never classified as web-rendered
+
+- Date: 2026-10-13
+- Status: accepted
+- Context: "put the button in front of the selected sentence and make sure it works in millie..
+  seems like if I try twice the first copy and paste works but the second does not if I
+  rehighlight." Three faults, and the Millie one was the oldest and worst.
+- **Millie took the accessibility tier, which Chromium throws away.** `app.millie` is a Chromium
+  build: no Electron markers, and not in the browser bundle-id list, so `isWebBacked` said no and
+  replacements were written through an API that returns `.success` and discards them (ADR-133).
+  The classifier now treats `Chromium Framework.framework` as a marker, which catches every
+  Chromium fork without a list to maintain. Tested directly against synthesised bundles.
+- **The badge sat after the sentence, not in front of it.** `selectionRect` asks for the bounds of
+  the selected range and many apps answer with a 1pt caret rect — every `{1, 18}` in the log. A
+  caret is where the drag *finished*, so "left of that" is the end of the sentence. The badge now
+  anchors to `selectionStartRect`, the bounds of the selection's first character, which those
+  apps answer properly and which is the right anchor anyway.
+- **The second attempt did nothing.** Applying a correction suppresses the card for that text so
+  it does not immediately re-present over what was just fixed (ADR-157). That suppression only
+  lifted when the selection went away, so deliberately re-highlighting the same sentence stayed
+  suppressed — exactly "the first works, the second does not if I rehighlight". It now expires
+  after 1.5s, which covers the reflexive re-presentation it exists to stop and nothing a person
+  does on purpose. A dismissal the *user* chooses still does not expire.
+- Worth noting about the first of these: it is the same ADR-133 behaviour that has now caused
+  four separate bugs, and each time the fix was for one app rather than for the class. A marker
+  for the framework, rather than another bundle identifier, is the first fix here that is not
+  per-app.

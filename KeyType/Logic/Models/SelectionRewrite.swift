@@ -1946,8 +1946,18 @@ final class SelectionRewriteController {
             return
         }
 
-        // Already dismissed for this selection. Stay dismissed.
-        if key == dismissedKey { return }
+        // Already dismissed for this selection. Stay dismissed — unless the dismissal was the
+        // automatic one after applying a correction, which expires so that re-selecting the same
+        // sentence on purpose works.
+        if key == dismissedKey {
+            if let applied = justAppliedAt, Date().timeIntervalSince(applied) > Self.justAppliedSuppression {
+                RewriteLog.write("poll: post-apply suppression expired, offering again")
+                dismissedKey = nil
+                justAppliedAt = nil
+            } else {
+                return
+            }
+        }
 
         // A visible panel does not move under the pointer. Even a genuine selection change should not
         // reposition a toolbar the user is currently reaching for; the system's own selection callout
@@ -2052,8 +2062,10 @@ final class SelectionRewriteController {
                hypot(rect.midX - previous.midX, rect.midY - previous.midY) < Self.anchorFollowThreshold {
                 return
             }
+            // Anchored to where the sentence starts, which is not where the caret is.
+            let badgeAnchor = rawEl.flatMap { AX.selectionStartRect($0) } ?? rect
             pendingBadgeAnchor = rect
-            badge.present(forSelection: rect)
+            badge.present(forSelection: badgeAnchor)
             shownSelection = selected
             shownBundle = bundle
             shownAt = Date()
@@ -2109,6 +2121,7 @@ final class SelectionRewriteController {
         popover.clearBody()
         if suppressingCurrentSelection, let shown = shownSelection {
             dismissedKey = Self.selectionKey(shown)
+            justAppliedAt = nil   // a dismissal the user chose does not expire
         }
         shownSelection = nil
         shownBundle = nil
@@ -2577,8 +2590,20 @@ final class SelectionRewriteController {
     /// sentence again later still offers the card. It only suppresses the moment immediately after.
     private func suppressJustApplied(_ text: String) {
         dismissedKey = Self.selectionKey(text)
+        justAppliedAt = Date()
         autoCheckedText = text
     }
+
+    /// When the last replacement was applied, so the suppression above can expire.
+    ///
+    /// Without an expiry it lasted until the selection went away entirely, which broke the
+    /// obvious second attempt: apply a correction, highlight the same sentence again to try
+    /// another action, and nothing appears — the text still matches what was just applied. That
+    /// is "the first copy and paste works but the second does not if I rehighlight". A second or
+    /// two covers the reflexive re-presentation this exists to stop, and nothing a person does
+    /// deliberately.
+    private var justAppliedAt: Date?
+    private static let justAppliedSuppression: TimeInterval = 1.5
 
     /// How long to wait for an accessibility write to show up in the field's value before treating
     /// it as dropped. Generous next to the ~75ms a Chromium field was measured to take, because the
@@ -2841,6 +2866,34 @@ private enum AX {
               let bv = boundsValue, CFGetTypeID(bv) == AXValueGetTypeID() else { return nil }
         var rect = CGRect.zero
         guard AXValueGetValue(bv as! AXValue, .cgRect, &rect), !rect.isNull, rect.width.isFinite else { return nil }
+        return rect
+    }
+
+    /// The rect of the selection's *first character*.
+    ///
+    /// `selectionRect` asks for the bounds of the whole selected range, and plenty of apps answer
+    /// with a 1pt caret rect instead — every `{1, 18}` in the log is one. A caret sits where the
+    /// drag finished, which is usually the *end* of the selection, so placing the badge to the
+    /// left of that rect put it after the sentence rather than in front of it.
+    ///
+    /// Asking for one character at the range's start is a question those apps answer properly,
+    /// and it is the right anchor regardless: the badge marks where the sentence begins.
+    static func selectionStartRect(_ element: AXUIElement) -> CGRect? {
+        var rangeValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &rangeValue) == .success,
+              let rv = rangeValue, CFGetTypeID(rv) == AXValueGetTypeID() else { return nil }
+        var cfRange = CFRange()
+        guard AXValueGetValue(rv as! AXValue, .cfRange, &cfRange), cfRange.length > 0 else { return nil }
+
+        var firstCharacter = CFRange(location: cfRange.location, length: 1)
+        guard let firstValue = AXValueCreate(.cfRange, &firstCharacter) else { return nil }
+        var boundsValue: CFTypeRef?
+        guard AXUIElementCopyParameterizedAttributeValue(
+            element, kAXBoundsForRangeParameterizedAttribute as CFString, firstValue, &boundsValue) == .success,
+              let bv = boundsValue, CFGetTypeID(bv) == AXValueGetTypeID() else { return nil }
+        var rect = CGRect.zero
+        guard AXValueGetValue(bv as! AXValue, .cgRect, &rect), !rect.isNull, rect.width.isFinite,
+              rect.height > 0 else { return nil }
         return rect
     }
 
