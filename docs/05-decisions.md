@@ -5088,3 +5088,28 @@ text. Both are now closed:
   value that was a literal and so could never report failure; this was a failure signal that
   could never report success. Both were conditions asserted rather than observed, and both were
   invisible until something downstream was obviously wrong.
+
+## ADR-174 — A stuck spinner had four silent exits and no deadline
+
+- Date: 2026-10-13
+- Status: accepted
+- Context: the card sat at "Checking spelling…" indefinitely. The log for it was one line —
+  `autocheck start textLen=61` — and then nothing: no model call, no completion, no error. A
+  minute later the poll was still running, so the main thread was alive and only the pass was
+  hung.
+- The diagnosis could not be made, which is the finding. The pass has four ways to end without
+  saying anything: cancelled, the selection changed underneath it, the card closed, or the
+  `defer` deciding the spinner belongs to a successor. All four were silent, and so was the
+  boundary between the spelling pass and the model, so "stuck at Checking spelling…" narrowed it
+  to roughly half the function.
+- Decision, instrumentation: every exit names itself, `stillCurrent` reports which of its three
+  conditions failed and at which stage, and the spelling pass logs its own completion. A normal
+  run now reads start → spelling pass done → done → exit, and a stuck one will say which of
+  those it reached.
+- Decision, a deadline: a 45-second watchdog cancels the pass and clears the spinner. This is not
+  a fix for whatever hung — it is the difference between a user seeing "nothing is coming" and a
+  user seeing a spinner forever. A progress indicator that can run indefinitely is worse than
+  none, because it promises a result.
+- Recorded as unresolved: the underlying hang has not been reproduced or explained. Four runs
+  since have completed normally in about two seconds. The next occurrence will be diagnosable
+  from the log, which it was not this time.

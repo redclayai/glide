@@ -1426,6 +1426,8 @@ final class SelectionRewriteController {
     private static let autoCheckMaximumLength = 1200
     /// How long a selection must stand still before the model is asked about it.
     private static let autoCheckSettleMilliseconds = 700
+    /// Longest a pass may run before the spinner is cleared regardless.
+    private static let autoCheckWatchdogSeconds = 45
 
     /// Built per run, not once at init. The policy is enforced at execution rather than at display,
     /// so turning "allow commands and scripts" on takes effect on the next click instead of the next
@@ -2263,18 +2265,46 @@ final class SelectionRewriteController {
             // text so a task that has already been replaced cannot switch off the spinner its
             // successor just switched on.
             defer {
-                if self.autoCheckedText == context.text { self.popover.setChecking(false) }
+                // Says why, because "the spinner is still going" has four possible exits and the
+                // card showed no way to tell them apart (ADR-174).
+                let mine = self.autoCheckedText == context.text
+                RewriteLog.write("autocheck exit: clearedSpinner=\(mine)")
+                if mine { self.popover.setChecking(false) }
             }
             // Guards the whole pass: the user may have selected something else, pressed a button,
             // or dismissed the card while a model call was in flight, and none of those should be
             // overwritten by a result for text that is no longer on screen.
-            @MainActor func stillCurrent() -> Bool {
-                if Task.isCancelled { return false }
-                return self.pendingText == context.text && self.popover.isVisible
+            @MainActor func stillCurrent(_ stage: String) -> Bool {
+                if Task.isCancelled {
+                    RewriteLog.write("autocheck \(stage): cancelled")
+                    return false
+                }
+                if self.pendingText != context.text {
+                    RewriteLog.write("autocheck \(stage): selection changed underneath")
+                    return false
+                }
+                if !self.popover.isVisible {
+                    RewriteLog.write("autocheck \(stage): card no longer visible")
+                    return false
+                }
+                return true
             }
 
+            // A watchdog, because a stuck spinner is a dead end for the user: no result, no
+            // error, and no way to tell that nothing is coming. Seen on a 61-character selection
+            // that logged `autocheck start` and then nothing at all — not even a model call.
+            let watchdog = Task { @MainActor in
+                try? await Task.sleep(for: .seconds(Self.autoCheckWatchdogSeconds))
+                guard !Task.isCancelled, self.autoCheckedText == context.text else { return }
+                RewriteLog.write("autocheck WATCHDOG: no result after \(Self.autoCheckWatchdogSeconds)s — giving up")
+                self.autoCheck?.cancel()
+                self.popover.setChecking(false)
+            }
+            defer { watchdog.cancel() }
+
             let spelled = await self.spellingCorrector?(context.text) ?? context.text
-            guard stillCurrent() else { return }
+            RewriteLog.write("autocheck: spelling pass done, changed=\(spelled != context.text)")
+            guard stillCurrent("after spelling") else { return }
             let spellingChanged = spelled != context.text
             if spellingChanged {
                 self.popover.showDiff(
@@ -2294,11 +2324,11 @@ final class SelectionRewriteController {
             // cancellable now, but the cheapest inference is the one never started, and nobody
             // wants a rewrite of the half-sentence they were still dragging over.
             try? await Task.sleep(for: .milliseconds(Self.autoCheckSettleMilliseconds))
-            guard stillCurrent() else { return }
+            guard stillCurrent("after model") else { return }
 
             do {
                 let result = try await self.runner.run(grammar, on: context)
-                guard stillCurrent() else { return }
+                guard stillCurrent("after model") else { return }
                 let changed = result.text.trimmingCharacters(in: .whitespacesAndNewlines) != trimmed
                 if changed {
                     self.popover.showDiff(
@@ -2332,7 +2362,7 @@ final class SelectionRewriteController {
                 // no basis for saying the text is fine — so the card goes back to its buttons and
                 // claims nothing.
                 RewriteLog.write("autocheck: suggestion rejected by the gate — offering nothing")
-                guard stillCurrent() else { return }
+                guard stillCurrent("after model") else { return }
                 self.shownAt = Date()
                 if spellingChanged {
                     self.popover.showDiff(
@@ -2349,7 +2379,7 @@ final class SelectionRewriteController {
                 // in the log as "autocheck grammar failed — No change suggested." on text that was
                 // simply already correct, where the card then fell back to its buttons and the
                 // well-written badge was never reachable.
-                guard stillCurrent() else { return }
+                guard stillCurrent("after model") else { return }
                 self.shownAt = Date()
                 if !spellingChanged {
                     self.popover.showClean(
@@ -2369,7 +2399,7 @@ final class SelectionRewriteController {
                 // card goes back to its actions: an automatic pass that nobody asked for has not
                 // earned the right to put an error message in front of anyone.
                 RewriteLog.write("autocheck grammar failed — \(error.localizedDescription)")
-                guard stillCurrent() else { return }
+                guard stillCurrent("after model") else { return }
                 if spellingChanged {
                     // Drop the footnote. The spelling fix stands on its own; leaving "Checking
                     // grammar…" spinning under it would promise a second pass that is not coming.
