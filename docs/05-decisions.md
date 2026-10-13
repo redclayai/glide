@@ -4940,3 +4940,37 @@ text. Both are now closed:
   → "Answered by", offering Local, Anthropic and Gemini with an API key field, routed through the
   same `ModelRewriteGate`. Worth recording that it was there, because the instinct on being asked
   for a feature is to build it.
+
+## ADR-169 — A badge first, the card only when asked
+
+- Date: 2026-10-13
+- Status: accepted
+- Context: "Like Grammarly I want to present this and require to select it before it opens the
+  window for recommendations. Right now the window is getting in the way when I don't want or
+  need it." The card is 720pt wide and sat over the document on *every* selection — and most
+  selections are not requests for a correction. Copying, quoting, re-reading, dragging across a
+  paragraph: all of them raised a card that had to be dismissed.
+- Decision: a selection raises a 26pt badge in the margin — the app's star on the card's own dark
+  chrome — and nothing else. The card opens when the badge is clicked.
+- The consequence that matters most is not visual. **Nothing is computed until the badge is
+  clicked**: no ranking, no spelling pass, no model. An ordinary selection now costs a small
+  square in the margin instead of several seconds of CPU and a card in the way, which also
+  retires the whole class of complaint behind ADR-161 and ADR-168 — the automatic pass was only
+  ever alarming because it ran on selections nobody cared about.
+- Four details that each would have broken it, three of them already written down in this file:
+  - `acceptsFirstMouse` on the badge's button. The panel is non-activating, so without it the
+    first click is spent activating rather than pressing — and the badge exists to be clicked
+    exactly once (ADR-119).
+  - It must not take the keyboard: `canBecomeKey` is false, so the document keeps focus.
+  - It holds still unless the selection really moves, against the wandering 1pt caret rect that
+    made the card jump (ADR-144).
+  - It is exempt from the fifteen-second visibility cap. The cap exists so a card cannot be stuck
+    over a document; a mark in the margin is not in the way, and expiring it would remove the
+    thing the user was about to click.
+- And one found by testing rather than foresight: the cap killed the card *fifteen seconds after
+  the badge opened it*, mid-grammar-pass, because the body was still the actions row and nothing
+  marked the card as busy. `isChecking` now defers the cap, and every result is treated as
+  solicited, since the pass only runs on a deliberate click now.
+- Verified: badge appears beside the selection, clicking it opens the card at the same anchor and
+  starts the pass. The cap fix is reasoned but was not re-exercised — other applications kept
+  taking focus on the test machine.

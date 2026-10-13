@@ -696,8 +696,14 @@ final class SelectionRewritePopover: NSPanel {
         stripSubtitleLabel.stringValue = text
     }
 
+    /// True while a pass is running. The card must outlive it — taking away a card the user
+    /// deliberately opened, part-way through the work they opened it for, is the worst possible
+    /// moment to expire.
+    private(set) var isChecking = false
+
     /// Show that something is being worked out, without taking the buttons away.
     func setChecking(_ checking: Bool, label: String = "Checking\u{2026}") {
+        isChecking = checking
         stripSpinner.isHidden = !checking
         if checking {
             stripSpinner.startAnimation(nil)
@@ -1362,6 +1368,9 @@ final class SelectionRewriteController {
     /// llama context. The actor also serializes them, so the two can never run an eval at once.
     private let service: RewriteService
     private let popover = SelectionRewritePopover()
+    private let badge = SelectionBadgePanel()
+    /// Where the badge is standing, so the card opens in the same place.
+    private var pendingBadgeAnchor: CGRect?
 
     /// Show the card with canned content, for looking at it. See `GLIDE_CARD_PREVIEW` in
     /// `AppDelegate`. Uses the real ranker and the real diff so what appears is the real card, not
@@ -1555,6 +1564,7 @@ final class SelectionRewriteController {
         popover.onAction = { [weak self] action in self?.perform(action) }
         popover.onAcceptResult = { [weak self] text in self?.acceptPreviewedResult(text) }
         popover.onUserTookOver = { [weak self] in self?.cancelAutoCheck() }
+        badge.onOpen = { [weak self] in self?.openCardFromBadge() }
         popover.onAsk = { [weak self] instruction in self?.runAsk(instruction) }
         popover.onCancel = { [weak self] in
             RewriteLog.write("action cancelled by the user")
@@ -1800,7 +1810,14 @@ final class SelectionRewriteController {
         // very short time to compose an instruction, and a text field that vanishes mid-sentence is
         // worse than any stuck panel. Interaction defers it rather than disabling it — the moment the
         // pointer leaves and nothing is running, the clock restarts.
-        if popover.isPointerInside || popover.isMenuOpen || popover.isInteracting || isBusy {
+        // The badge is exempt from the visibility cap. The cap exists so a card can never be
+        // stuck over someone's document; a mark in the margin is not in the way, and it goes when
+        // the selection does. Expiring it would just take away the thing the user was about to
+        // click.
+        if badge.isVisible, !popover.isVisible {
+            shownAt = Date()
+        } else if popover.isPointerInside || popover.isMenuOpen || popover.isInteracting
+                    || popover.isChecking || isBusy {
             shownAt = Date()
         } else if let shownAt, Date().timeIntervalSince(shownAt) > Self.maximumVisibleSeconds {
             RewriteLog.write("poll: dismissed by the visibility cap")
@@ -2006,8 +2023,30 @@ final class SelectionRewriteController {
         }
 
         lastAutoRanked = ranked
+
+        // The badge, not the card.
+        //
+        // A selection raises a small mark in the margin and nothing else: no card over the
+        // document, no spelling pass, no model. The card opens when that mark is clicked, which
+        // is the only moment we know the user wants it. Most selections are not requests for a
+        // correction, and treating them as one is what "the window is getting in the way" is.
+        if !popover.isVisible {
+            // Only move it if the selection really moved. The anchor Accessibility reports is
+            // frequently a 1pt caret rect that wanders by tens of points while nothing happens,
+            // and a badge that twitches in the margin is its own kind of distraction (ADR-144).
+            if let previous = pendingBadgeAnchor, badge.isVisible,
+               hypot(rect.midX - previous.midX, rect.midY - previous.midY) < Self.anchorFollowThreshold {
+                return
+            }
+            pendingBadgeAnchor = rect
+            badge.present(forSelection: rect)
+            shownSelection = selected
+            shownBundle = bundle
+            shownAt = Date()
+            return
+        }
+
         popover.setActions(ranked, for: selected)
-        startAutoCheck(for: actionContext)
 
         // A visible panel never follows the pointer.
         //
@@ -2047,6 +2086,8 @@ final class SelectionRewriteController {
     /// re-triggering forever on the 15-second cap.
     private func hide(suppressingCurrentSelection: Bool = false) {
         cancelAutoCheck()
+        badge.orderOut(nil)
+        pendingBadgeAnchor = nil
         // Forgotten deliberately: re-selecting the same sentence after dismissing the card should
         // check it again, because the user asking twice is the user asking.
         autoCheckedText = nil
@@ -2213,8 +2254,7 @@ final class SelectionRewriteController {
                     title: "Corrected spelling",
                     original: context.text,
                     replacement: spelled,
-                    footnote: "Checking grammar\u{2026}",
-                    solicited: false
+                    footnote: "Checking grammar\u{2026}"
                 )
             }
 
@@ -2237,8 +2277,7 @@ final class SelectionRewriteController {
                     self.popover.showDiff(
                         title: spellingChanged ? "Corrected spelling and grammar" : "Corrected grammar",
                         original: context.text,
-                        replacement: result.text,
-                        solicited: false
+                        replacement: result.text
                     )
                 } else if !spellingChanged {
                     // Both passes found nothing. Worth saying so — it is the answer to the question
@@ -2272,8 +2311,7 @@ final class SelectionRewriteController {
                     self.popover.showDiff(
                         title: "Corrected spelling",
                         original: context.text,
-                        replacement: spelled,
-                        solicited: false
+                        replacement: spelled
                     )
                 } else if let ranked = self.lastAutoRanked {
                     self.popover.setActions(ranked, for: context.text)
@@ -2295,8 +2333,7 @@ final class SelectionRewriteController {
                     self.popover.showDiff(
                         title: "Corrected spelling",
                         original: context.text,
-                        replacement: spelled,
-                        solicited: false
+                        replacement: spelled
                     )
                 }
                 RewriteLog.write("autocheck done spelling=\(spellingChanged) grammar=false")
@@ -2312,14 +2349,35 @@ final class SelectionRewriteController {
                     self.popover.showDiff(
                         title: "Corrected spelling",
                         original: context.text,
-                        replacement: spelled,
-                        solicited: false
+                        replacement: spelled
                     )
                 } else if let ranked = self.lastAutoRanked {
                     self.popover.setActions(ranked, for: context.text)
                 }
             }
         }
+    }
+
+    /// The badge was clicked: put the card where the badge was, and start the pass.
+    ///
+    /// This is the moment the work is wanted, so it all happens here rather than on selection —
+    /// the ranking, the card, the spelling pass and the model. Everything before this point cost
+    /// nothing but a 26pt square in the margin.
+    private func openCardFromBadge() {
+        guard let context = pendingContext, let anchor = pendingBadgeAnchor else { return }
+        RewriteLog.write("badge: opening card for \(context.text.count) chars")
+        badge.orderOut(nil)
+
+        let ranked = lastAutoRanked ?? ranker.rank(
+            actionStore.allActions,
+            for: context,
+            preferences: actionStore.preferences,
+            usage: actionStore.usage
+        )
+        presentedAnchor = anchor
+        popover.setActions(ranked, for: context.text)
+        popover.present(aboveScreenRect: anchor)
+        startAutoCheck(for: context)
     }
 
     /// Cancels the automatic pass. Anything the user does themselves outranks it.
@@ -2738,5 +2796,97 @@ private enum AX {
         guard AXValueGetValue(p as! AXValue, .cgPoint, &origin),
               AXValueGetValue(s as! AXValue, .cgSize, &size) else { return nil }
         return CGRect(origin: origin, size: size)
+    }
+}
+
+/// The small mark that appears beside a selection, and opens the card when clicked.
+///
+/// The card used to open on every selection. It is 720pt wide and it sits over the document, so
+/// for every selection the user did not want corrected — most of them — it was simply in the way.
+/// The reference handles this with a badge: something small enough to ignore, in the margin, that
+/// opens the real surface only when asked.
+///
+/// Nothing is computed while this is showing. The spelling pass and the model run when the card
+/// opens, which means an ordinary selection now costs nothing at all rather than a few seconds of
+/// CPU and a card to dismiss.
+final class SelectionBadgePanel: NSPanel {
+    var onOpen: (() -> Void)?
+
+    /// The click that arrives while another application is frontmost.
+    ///
+    /// Without this the badge's first click is spent activating rather than pressing, and since
+    /// the badge exists to be clicked exactly once, that is the whole of it failing (ADR-119).
+    private final class FirstMouseButton: NSButton {
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    }
+
+    private let button = FirstMouseButton()
+    static let size: CGFloat = 26
+
+    init() {
+        super.init(
+            contentRect: NSRect(x: 0, y: 0, width: Self.size, height: Self.size),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        isOpaque = false
+        backgroundColor = .clear
+        hasShadow = true
+        level = .popUpMenu
+        collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
+        isMovable = false
+        hidesOnDeactivate = false
+        appearance = NSAppearance(named: .aqua)
+
+        let surface = NSView(frame: NSRect(x: 0, y: 0, width: Self.size, height: Self.size))
+        surface.wantsLayer = true
+        surface.layer?.backgroundColor = CardStyle.chrome.cgColor
+        surface.layer?.cornerRadius = 7
+        surface.layer?.cornerCurve = .continuous
+
+        button.frame = surface.bounds
+        button.isBordered = false
+        button.title = ""
+        button.image = NSImage(systemSymbolName: "star.fill", accessibilityDescription: "Glide suggestions")?
+            .withSymbolConfiguration(.init(pointSize: 12, weight: .bold))
+        button.contentTintColor = CardStyle.gold
+        button.imagePosition = .imageOnly
+        button.target = self
+        button.action = #selector(openTapped)
+        button.toolTip = "Glide suggestions"
+        surface.addSubview(button)
+        contentView = surface
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    /// The badge must never take the keyboard. It is one click with one meaning, and the document
+    /// keeps focus throughout.
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
+
+    @objc private func openTapped() { onOpen?() }
+
+    /// Place it in the margin to the left of the selection, or to the right when there is no room.
+    func present(forSelection rect: CGRect) {
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(appKitPoint(rect.origin)) })
+            ?? NSScreen.main else { return }
+        let primaryMaxY = NSScreen.screens.first?.frame.maxY ?? screen.frame.maxY
+        let top = primaryMaxY - rect.minY
+        let gap: CGFloat = 8
+
+        var x = rect.minX - Self.size - gap
+        if x < screen.frame.minX + 4 { x = rect.maxX + gap }
+        let y = top - Self.size - max(0, (rect.height - Self.size) / 2)
+
+        setFrameOrigin(NSPoint(x: x, y: y))
+        orderFrontRegardless()
+    }
+
+    private func appKitPoint(_ quartz: CGPoint) -> NSPoint {
+        let maxY = NSScreen.screens.first?.frame.maxY ?? 0
+        return NSPoint(x: quartz.x, y: maxY - quartz.y)
     }
 }
