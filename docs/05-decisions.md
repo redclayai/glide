@@ -5065,3 +5065,26 @@ text. Both are now closed:
   four separate bugs, and each time the fix was for one app rather than for the class. A marker
   for the framework, rather than another bundle identifier, is the first fix here that is not
   per-app.
+
+## ADR-173 — A timeout is a slow call, not an error code
+
+- Date: 2026-10-13
+- Status: accepted
+- Context: the log was full of `poll: abandoned, accessibility timed out after 1ms`, dozens of
+  them, and the badge was not appearing. The abandon from ADR-164 was firing on nearly every
+  poll and returning before anything could be shown.
+- Cause, mine, from ADR-164. That change bounded the poll by abandoning the round when an
+  Accessibility read reported `.cannotComplete`, on the reasoning that a wedged app would
+  otherwise be asked a dozen more questions and charge the ceiling for each. The reasoning holds;
+  the detection does not. `.cannotComplete` also comes back *immediately* for an attribute the
+  element does not support, for an element whose process has gone, and for assorted transient
+  failures — none of which is a reason to abandon anything, and all of which are common.
+- Decision: the duration has to agree with the verdict. A read counts as timed out only when it
+  returned `.cannotComplete` *and* took at least three quarters of the messaging ceiling. A fast
+  failure is just a failure: that attribute is unavailable, carry on.
+- Measured: dozens of abandons in the minutes before, **zero** after, with the badge appearing
+  normally again.
+- The pattern is worth naming because it is the second time in two days. ADR-170 was a success
+  value that was a literal and so could never report failure; this was a failure signal that
+  could never report success. Both were conditions asserted rather than observed, and both were
+  invisible until something downstream was obviously wrong.

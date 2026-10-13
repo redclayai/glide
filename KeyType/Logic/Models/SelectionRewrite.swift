@@ -2771,10 +2771,21 @@ private enum AX {
     nonisolated(unsafe) static var timedOut = false
 
     /// Every read goes through here, so there is one place that notices a timeout.
+    ///
+    /// A timeout is a *slow* call, not an error code. `.cannotComplete` also comes back
+    /// immediately for an attribute the element does not support, for an element whose process
+    /// has gone, and for assorted transient failures — and keying the abandon on the code alone
+    /// meant polls were being thrown away after one millisecond, logging "accessibility timed
+    /// out after 1ms" and never reaching the point where the badge is shown. The app looked
+    /// dead. So the duration has to agree with the verdict.
     static func copy(_ element: AXUIElement, _ attr: String) -> CFTypeRef? {
         var value: CFTypeRef?
+        let started = CFAbsoluteTimeGetCurrent()
         let result = AXUIElementCopyAttributeValue(element, attr as CFString, &value)
-        if result == .cannotComplete { timedOut = true }
+        if result == .cannotComplete,
+           CFAbsoluteTimeGetCurrent() - started >= Double(messagingTimeout) * 0.75 {
+            timedOut = true
+        }
         guard result == .success else { return nil }
         return value
     }
