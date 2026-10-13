@@ -90,7 +90,13 @@ public struct ActionRunner: ActionRunning {
     public typealias ModelResponder = @Sendable (
         _ instruction: String,
         _ fewShot: FewShotPrompt?,
-        _ text: String
+        _ text: String,
+        /// Whether the answer should be about the same length as `text`. True for proofreading,
+        /// where the contract is this sentence with its errors removed; false for Summarize,
+        /// Expand and ad-hoc instructions, which are meant to change it. A local generator can
+        /// use it to stop once the answer is as long as the input rather than running to a token
+        /// budget — the base model does not stop by itself.
+        _ preservesShape: Bool
     ) async throws -> String
 
     /// Deterministic spelling correction. Injected for the same reason the model is: this package
@@ -145,7 +151,7 @@ public struct ActionRunner: ActionRunning {
 
         case let .prompt(instruction):
             guard let model else { throw ActionError.modelUnavailable }
-            return try await model(instruction, action.fewShot, context.text)
+            return try await model(instruction, action.fewShot, context.text, false)
 
         case let .proofread(instruction):
             let spelled = await spelling?(context.text) ?? context.text
@@ -157,7 +163,7 @@ public struct ActionRunner: ActionRunning {
                 return spelled
             }
             do {
-                let raw = try await model(instruction, action.fewShot, spelled)
+                let raw = try await model(instruction, action.fewShot, spelled, true)
                 // Untrusted until judged. The on-device model is a base model (ADR-138) and on
                 // text that needs no correction it tends to echo the input and keep going:
                 // "The report was sent to the client on Monday." came back as that sentence

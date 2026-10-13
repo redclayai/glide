@@ -201,13 +201,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 ActionRunner(
                     policy: ExecutionPolicy(allowsCodeExecution: allowsCode),
                     spelling: spellingCorrector,
-                    model: { instruction, fewShot, text in
+                    model: { instruction, fewShot, text, preservesShape in
                         let spec = RewriteInstruction(
                             instruction: instruction,
                             fewShotHeader: fewShot?.header,
                             examples: (fewShot?.examples ?? []).map {
                                 RewriteExample(original: $0.original, rewritten: $0.rewritten)
-                            }
+                            },
+                            preservesShape: preservesShape
                         )
                         switch await selectionRewriter(text, .custom(spec)) {
                         case let .success(result): return result

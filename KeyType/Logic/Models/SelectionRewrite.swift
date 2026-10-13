@@ -106,6 +106,13 @@ actor RewriteService {
         /// Few-shot styles continue a pattern, so the answer ends at the newline rather than at a
         /// chat end-of-turn marker the base model has no reason to emit. That applies to any
         /// example-driven prompt, not just the inline grammar one.
+        /// Whether the answer should stay about the same shape as the input — true only for a
+        /// proofread, where the contract makes a sentence count meaningful.
+        var preservesShape: Bool {
+            if case let .custom(spec) = self { return spec.preservesShape }
+            return self == .grammar || self == .inlineGrammar
+        }
+
         var stopsAtNewline: Bool {
             if case let .custom(spec) = self { return spec.hasExamples }
             return self == .inlineGrammar
@@ -205,6 +212,21 @@ actor RewriteService {
             // first one. `stopsAtNewline` continues to cover the few-shot styles, where the
             // pattern itself invites a next example.
             let stopAtNewline = style.stopsAtNewline || !trimmed.contains("\n")
+
+            // For a correction, the answer is finished when it has rewritten the last sentence.
+            //
+            // The base model does not stop. On "I think Scott sent us you another email asking
+            // for more information, last week I think." it produced six times that length, and
+            // the output gate — whose own rule is that a correction may not gain sentences —
+            // discarded the lot after ten seconds of generating it. Counting sentences as they
+            // arrive applies that same rule at the point it can still save the time, and yields
+            // the correction rather than throwing it away with the rambling attached.
+            //
+            // Only for shape-preserving work: Summarize is meant to end up shorter and Expand
+            // longer, and neither should be cut when it reaches the input's sentence count.
+            let sentenceBudget: Int? = style.preservesShape
+                ? max(1, Self.completedSentences(trimmed))
+                : nil
             let echoProbe = String(trimmed.prefix(40))
             var cutAtSecondCopy: String?
             var produced: [TokenID] = []
@@ -223,6 +245,17 @@ actor RewriteService {
                 if stopAtNewline,
                    let text = try? rt.tokenizer.detokenize(produced),
                    text.contains("\n") {
+                    break
+                }
+
+                // Every token, not every fourth. A correction is ten to thirty tokens, so the
+                // detokenising is free, and the sampling interval was itself the bug: ". I
+                // think." is exactly four tokens, so a whole second sentence could arrive
+                // between two checks and the gate then refused the result for having one
+                // sentence too many.
+                if let sentenceBudget,
+                   let text = try? rt.tokenizer.detokenize(produced),
+                   Self.completedSentences(text) >= sentenceBudget {
                     break
                 }
 
@@ -256,6 +289,26 @@ actor RewriteService {
             log.error("rewrite failed: \(String(describing: error), privacy: .public)")
             return nil
         }
+    }
+
+    /// Sentences that have actually been *finished* — terminator runs, and nothing for a trailing
+    /// fragment.
+    ///
+    /// Deliberately not `ModelRewriteGate.sentenceCount`, which counts the unterminated tail as a
+    /// sentence because for its purpose it is one. Here the question is "has the model finished
+    /// the sentence it is on", and counting the fragment would answer yes on the first token.
+    /// Stopping on `>=` of this is what leaves the answer at exactly the input's shape, where
+    /// stopping when the gate's count was *exceeded* left one sentence too many and the gate then
+    /// refused it — `sentences 2 > 1`.
+    static func completedSentences(_ text: String) -> Int {
+        var count = 0
+        var previousWasTerminator = false
+        for character in text {
+            let isTerminator = ".!?".contains(character)
+            if isTerminator, !previousWasTerminator { count += 1 }
+            previousWasTerminator = isTerminator
+        }
+        return count
     }
 
     private func runtime(for filename: String) throws -> LlamaModelRuntime {
@@ -1564,13 +1617,14 @@ final class SelectionRewriteController {
         // Every prompt action reaches the configured engine through the same closure the two
         // built-in styles already used, as a `.custom` instruction. That keeps provider plumbing,
         // retries and rate-limit reporting in one place instead of once per action.
-        self.modelResponder = { instruction, fewShot, text in
+        self.modelResponder = { instruction, fewShot, text, preservesShape in
             let spec = RewriteInstruction(
                 instruction: instruction,
                 fewShotHeader: fewShot?.header,
                 examples: (fewShot?.examples ?? []).map {
                     RewriteExample(original: $0.original, rewritten: $0.rewritten)
-                }
+                },
+                preservesShape: preservesShape
             )
             switch await rewriteText(text, .custom(spec)) {
             case let .success(result): return result

@@ -36,11 +36,26 @@ public struct RewriteInstruction: Sendable, Equatable, Codable {
     /// `(original, rewritten)` pairs, plus the short header that introduces them.
     public var fewShotHeader: String?
     public var examples: [RewriteExample]
+    /// Whether the answer should be about the same shape as the input.
+    ///
+    /// True for proofreading, where the contract is "this sentence with its errors removed", and
+    /// false for Summarize, Expand or an ad-hoc instruction, which are *supposed* to change the
+    /// length. A generator can use it to stop once the answer is as long as the thing it was
+    /// correcting, instead of running to a token budget: the local base model does not stop on
+    /// its own and produced a 6.4× overrun on an eighty-character sentence, which the output gate
+    /// then discarded after ten seconds of generating it.
+    public var preservesShape: Bool
 
-    public init(instruction: String, fewShotHeader: String? = nil, examples: [RewriteExample] = []) {
+    public init(
+        instruction: String,
+        fewShotHeader: String? = nil,
+        examples: [RewriteExample] = [],
+        preservesShape: Bool = false
+    ) {
         self.instruction = instruction
         self.fewShotHeader = fewShotHeader
         self.examples = examples
+        self.preservesShape = preservesShape
     }
 
     public var hasExamples: Bool { !examples.isEmpty && fewShotHeader != nil }

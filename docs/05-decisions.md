@@ -5113,3 +5113,30 @@ text. Both are now closed:
 - Recorded as unresolved: the underlying hang has not been reproduced or explained. Four runs
   since have completed normally in about two seconds. The next occurrence will be diagnosable
   from the log, which it was not this time.
+
+## ADR-175 — Stop a correction when it has finished the sentence
+
+- Date: 2026-10-13
+- Status: accepted
+- Context: ten seconds of spinner and then nothing, on "I think Scott sent us you another email
+  asking for more information, last week I think." The log named it:
+  `proofread gate rejected [length ratio 6.38]`. The model produced six times the input and the
+  output gate discarded all of it — including the correct answer, which was in the first fifteen
+  tokens.
+- The gate's own rule is that a correction may not gain sentences. Applying that same rule *while
+  generating* ends the work at the point the answer is complete, instead of ten seconds later
+  when it is thrown away. The shape is now carried on the instruction: `preservesShape`, true for
+  proofreading and false for Summarize, Expand and ad-hoc prompts, which are meant to change
+  length and must not be cut at the input's sentence count.
+- Two mistakes in getting the condition right, both found by re-running rather than reasoning:
+  - Stopping when the count *exceeded* the budget left one sentence too many, and the gate
+    refused it: `sentences 2 > 1`. The stop has to fire on completing the budget, not passing it.
+  - Counting with `ModelRewriteGate.sentenceCount` was wrong here, because it counts the
+    unterminated tail as a sentence — correct for its own purpose and fatal for this one, where
+    it answers "yes, finished" on the first token. `completedSentences` counts terminator runs
+    only.
+  - And the check ran every fourth token, which is exactly the length of ". I think." — a whole
+    second sentence could arrive between two looks. A correction is ten to thirty tokens, so it
+    now checks every one.
+- Result on the reported sentence: 15 tokens, accepted, shown. Previously six times the length,
+  ten seconds, and nothing.

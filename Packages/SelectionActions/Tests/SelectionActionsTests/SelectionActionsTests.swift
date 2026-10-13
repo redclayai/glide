@@ -310,7 +310,7 @@ final class ActionRunnerTests: XCTestCase {
     }
 
     func testPromptGoesToTheInjectedModel() async throws {
-        let runner = ActionRunner(model: { instruction, _, text in "\(instruction)|\(text)" })
+        let runner = ActionRunner(model: { instruction, _, text, _ in "\(instruction)|\(text)" })
         let result = try await runner.run(action(.prompt("FIX")), on: SelectionContext(text: "abc"))
         XCTAssertEqual(result.text, "FIX|abc")
     }
@@ -318,7 +318,7 @@ final class ActionRunnerTests: XCTestCase {
     /// The reason `fewShot` exists at all: the engine has to receive it to use it.
     func testFewShotExamplesReachTheModel() async throws {
         var seen: FewShotPrompt?
-        let runner = ActionRunner(model: { _, fewShot, text in
+        let runner = ActionRunner(model: { _, fewShot, text, _ in
             seen = fewShot
             return text.uppercased()
         })
@@ -332,7 +332,7 @@ final class ActionRunnerTests: XCTestCase {
     /// A replacement that equals the selection is reported, not applied — otherwise "it did nothing"
     /// and "it succeeded" look identical to the user. See ADR-138.
     func testAnEchoedResultIsReportedRatherThanApplied() async {
-        let runner = ActionRunner(model: { _, _, text in text })
+        let runner = ActionRunner(model: { _, _, text, _ in text })
         do {
             _ = try await runner.run(action(.prompt("FIX")), on: SelectionContext(text: "unchanged text"))
             XCTFail("expected unchanged")
@@ -344,7 +344,7 @@ final class ActionRunnerTests: XCTestCase {
     /// But Copy legitimately returns the selection verbatim, and a preview that echoes is still an
     /// answer — so the check is scoped to actions that replace the document.
     func testEchoIsFineForOutputsThatDoNotReplaceTheSelection() async throws {
-        let runner = ActionRunner(model: { _, _, text in text })
+        let runner = ActionRunner(model: { _, _, text, _ in text })
         let copy = action(.prompt("FIX"), output: .copyToClipboard)
         let result = try await runner.run(copy, on: SelectionContext(text: "unchanged text"))
         XCTAssertEqual(result.text, "unchanged text")
@@ -694,7 +694,7 @@ final class ActionCatalogTests: XCTestCase {
         // the answer away, so we know nothing. Reporting the second as the first made Glide
         // announce that badly written text was well written.
         let runner = ActionRunner(
-            model: { _, _, _ in "something the gate will refuse" },
+            model: { _, _, _, _ in "something the gate will refuse" },
             proofreadGate: { _, _ in nil }
         )
         let action = ActionCatalog.builtIns.first { $0.id == "builtin.grammar" }!

@@ -188,7 +188,7 @@ public enum ModelRewriteGate {
     /// because `..` is a single run and the rest is unterminated, while the correct answer
     /// "Ok, thanks. I think we are on the same page." counted as two, so the gate threw away a
     /// perfect correction for adding the punctuation that was missing.
-    static func sentenceCount(_ text: String) -> Int {
+    public static func sentenceCount(_ text: String) -> Int {
         var count = 0
         var previousWasTerminator = false
         var contentSinceTerminator = false
