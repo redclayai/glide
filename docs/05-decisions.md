@@ -5140,3 +5140,27 @@ text. Both are now closed:
     now checks every one.
 - Result on the reported sentence: 15 tokens, accepted, shown. Previously six times the length,
   ten seconds, and nothing.
+
+
+## ADR-176 — Bind delayed rewrites to their destination and preserve clipboard ownership
+
+- Date: 2026-10-19
+- Status: accepted
+- Context: shortcut rewrites waited for inference and then pasted into the current application,
+  even if the user had moved elsewhere. Clipboard save/restore retained plain text only and
+  overwrote copies made during the wait. Punctuation-run stopping also confused abbreviations
+  and decimals with completed sentences, and omitted an unterminated final input sentence.
+- Decision: capture the original process, focused element, readable selection/range/value and
+  window. Invalidate a shortcut operation on keyboard/mouse input or app activation; recheck the
+  snapshot and clipboard before copying and before pasting. Mark synthesized copy/paste events
+  so they do not invalidate their own operation. If event monitoring is unavailable, suppress.
+- Clipboard snapshots retain all available data types and items, including an empty clipboard.
+  Restore the selection-copy transaction before inference. Delayed paste restoration only runs
+  while the clipboard change count still matches Glide's write. Apply the same format-preserving
+  snapshots to the selection action picker and selection paste fallbacks.
+- Sentence stopping uses Foundation sentence segmentation and waits for a following sentence,
+  then keeps only the requested sentence prefix. This preserves decimals, common abbreviations,
+  closing quotes, and a final input fragment. It is a boundary heuristic, not a semantic guarantee.
+- Validation: add regression cases for sentence boundaries, destination invalidation, clipboard
+  formats, empty clipboards, and newer user copies. Live cross-app paste timing still requires
+  testing with Accessibility access; system copy/paste and ownership checks are not atomic.

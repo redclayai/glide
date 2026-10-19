@@ -10,7 +10,7 @@ import AppKit
 import CompletionUI
 import MacContextCapture
 import Testing
-@testable import KeyType
+@testable import Glide
 
 struct KeyTypeTests {
     private static let target = AppTarget(bundleIdentifier: "com.test.app", appName: "Test")
@@ -665,5 +665,88 @@ struct KeyTypeTests {
         #expect(history.minimumEntriesPerKind == 15)
         #expect(history.rollbackEntryCount == 15)
         #expect(history.appendEntryCount == 135)
+    }
+}
+
+
+struct RewriteSafetyTests {
+    @Test func destinationChangesCancelInsertion() {
+        let original = RewriteDestinationSnapshot(processID: 10, element: nil,
+            attributes: ["selection": "original" as CFString, "range": "0:8" as CFString])
+        var state = RewriteDestinationState(original: original)
+        #expect(state.allows(original))
+        var moved = original
+        moved.processID = 11
+        #expect(!state.allows(moved))
+        moved = original
+        moved.attributes["range"] = "20:8" as CFString
+        #expect(!state.allows(moved))
+        moved = original
+        moved.attributes["selection"] = "changed" as CFString
+        #expect(!state.allows(moved))
+        moved = original
+        moved.attributes.removeValue(forKey: "selection")
+        #expect(!state.allows(moved))
+        #expect(!state.allows(nil))
+        state.invalidate()
+        // Switching away and back, or restoring a selection, must not revive an old operation.
+        #expect(!state.allows(original))
+        #expect(!RewriteDestinationState(original: nil).allows(nil))
+    }
+
+    @Test func clipboardSnapshotCopiesDataAndRespectsOwnership() throws {
+        let text = NSPasteboardItem()
+        text.setString("original", forType: .string)
+        let richData = Data([1, 2, 3])
+        text.setData(richData, forType: .rtf)
+        let image = NSPasteboardItem()
+        let imageData = Data([4, 5, 6])
+        image.setData(imageData, forType: .png)
+        let snapshot = RewriteClipboardSnapshot(items: [text, image])
+        text.setString("mutated after snapshot", forType: .string)
+        let restored = try #require(snapshot.restoration(ifUnchanged: 10, currentChangeCount: 10))
+        #expect(restored.count == 2)
+        #expect(restored[0][.string] == Data("original".utf8))
+        #expect(restored[0][.rtf] == richData)
+        #expect(restored[1][.png] == imageData)
+        #expect(snapshot.restoration(ifUnchanged: 10, currentChangeCount: 11) == nil)
+        let empty = RewriteClipboardSnapshot(items: [])
+        #expect(empty.restoration(ifUnchanged: 10, currentChangeCount: 10)?.isEmpty == true)
+    }
+
+    @Test @MainActor func clipboardPreservesFormatsAndNewerCopies() throws {
+        let board = NSPasteboard.withUniqueName()
+        defer { board.releaseGlobally() }
+        let rich = NSPasteboardItem()
+        rich.setString("original", forType: .string)
+        let rtf = Data("{\\rtf1 original}".utf8)
+        rich.setData(rtf, forType: .rtf)
+        let image = NSPasteboardItem()
+        let imageBytes = Data([0x89, 0x50, 0x4e, 0x47])
+        image.setData(imageBytes, forType: .png)
+        #expect(board.writeObjects([rich, image]))
+        let snapshot = RewriteClipboardSnapshot(board)
+        board.clearContents()
+        board.setString("temporary rewrite", forType: .string)
+        snapshot.restore(board, ifUnchanged: board.changeCount)
+        let restored = try #require(board.pasteboardItems)
+        #expect(restored.count == 2)
+        #expect(restored.first?.data(forType: .rtf) == rtf)
+        #expect(restored.last?.data(forType: .png) == imageBytes)
+        #expect(restored.first?.string(forType: .string) == "original")
+
+        board.clearContents()
+        board.setString("rewrite", forType: .string)
+        let writtenCount = board.changeCount
+        board.clearContents()
+        board.setString("new user copy", forType: .string)
+        snapshot.restore(board, ifUnchanged: writtenCount)
+        #expect(board.string(forType: .string) == "new user copy")
+
+        board.clearContents()
+        let empty = RewriteClipboardSnapshot(board)
+        board.setString("temporary", forType: .string)
+        empty.restore(board, ifUnchanged: board.changeCount)
+        #expect(board.pasteboardItems?.isEmpty ?? true)
     }
 }

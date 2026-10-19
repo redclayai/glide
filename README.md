@@ -30,8 +30,11 @@ on the line. Tab takes the next word; keep pressing to take more.
 reads the whole sentence and offers a grammar fix — the correction appears in a capsule under the
 cursor, as above. Nothing is changed until you accept it.
 
-Everything runs **on your Mac**. No account, no network calls, no telemetry. The model lives in
-`~/Library/Application Support/`, and the app works with the Wi-Fi off.
+By default, writing assistance runs **on your Mac**, with no account required. The local model
+lives in `~/Library/Application Support/`, and local writing features work with the Wi-Fi off.
+You can optionally choose **Claude or Gemini** for grammar and selection rewrites in Settings.
+Those options require your own API key and send the text being rewritten to the selected provider.
+Model downloads and update checks also use the network.
 
 ## What makes it usable rather than annoying
 

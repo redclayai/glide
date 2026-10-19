@@ -213,20 +213,10 @@ actor RewriteService {
             // pattern itself invites a next example.
             let stopAtNewline = style.stopsAtNewline || !trimmed.contains("\n")
 
-            // For a correction, the answer is finished when it has rewritten the last sentence.
-            //
-            // The base model does not stop. On "I think Scott sent us you another email asking
-            // for more information, last week I think." it produced six times that length, and
-            // the output gate — whose own rule is that a correction may not gain sentences —
-            // discarded the lot after ten seconds of generating it. Counting sentences as they
-            // arrive applies that same rule at the point it can still save the time, and yields
-            // the correction rather than throwing it away with the rambling attached.
-            //
-            // Only for shape-preserving work: Summarize is meant to end up shorter and Expand
-            // longer, and neither should be cut when it reaches the input's sentence count.
-            let sentenceBudget: Int? = style.preservesShape
-                ? max(1, Self.completedSentences(trimmed))
-                : nil
+            // Wait for look-ahead before deciding that punctuation ended a sentence.
+            // A period alone may still become a decimal, abbreviation, or initial.
+            let sentenceSource: String? = style.preservesShape ? trimmed : nil
+            var sentencePrefix: String?
             let echoProbe = String(trimmed.prefix(40))
             var cutAtSecondCopy: String?
             var produced: [TokenID] = []
@@ -248,14 +238,10 @@ actor RewriteService {
                     break
                 }
 
-                // Every token, not every fourth. A correction is ten to thirty tokens, so the
-                // detokenising is free, and the sampling interval was itself the bug: ". I
-                // think." is exactly four tokens, so a whole second sentence could arrive
-                // between two checks and the gate then refused the result for having one
-                // sentence too many.
-                if let sentenceBudget,
+                if let sentenceSource,
                    let text = try? rt.tokenizer.detokenize(produced),
-                   Self.completedSentences(text) >= sentenceBudget {
+                   let prefix = RewriteSentenceBoundary.finishedPrefix(in: text, matching: sentenceSource) {
+                    sentencePrefix = prefix
                     break
                 }
 
@@ -269,7 +255,7 @@ actor RewriteService {
                     break
                 }
             }
-            let raw = cutAtSecondCopy ?? (try? rt.tokenizer.detokenize(produced)) ?? ""
+            let raw = sentencePrefix ?? cutAtSecondCopy ?? (try? rt.tokenizer.detokenize(produced)) ?? ""
             let result = Self.clean(raw)
             if result?.isEmpty ?? true {
                 RewriteLog.write(
@@ -289,26 +275,6 @@ actor RewriteService {
             log.error("rewrite failed: \(String(describing: error), privacy: .public)")
             return nil
         }
-    }
-
-    /// Sentences that have actually been *finished* — terminator runs, and nothing for a trailing
-    /// fragment.
-    ///
-    /// Deliberately not `ModelRewriteGate.sentenceCount`, which counts the unterminated tail as a
-    /// sentence because for its purpose it is one. Here the question is "has the model finished
-    /// the sentence it is on", and counting the fragment would answer yes on the first token.
-    /// Stopping on `>=` of this is what leaves the answer at exactly the input's shape, where
-    /// stopping when the gate's count was *exceeded* left one sentence too many and the gate then
-    /// refused it — `sentences 2 > 1`.
-    static func completedSentences(_ text: String) -> Int {
-        var count = 0
-        var previousWasTerminator = false
-        for character in text {
-            let isTerminator = ".!?".contains(character)
-            if isTerminator, !previousWasTerminator { count += 1 }
-            previousWasTerminator = isTerminator
-        }
-        return count
     }
 
     private func runtime(for filename: String) throws -> LlamaModelRuntime {
@@ -1759,28 +1725,32 @@ final class SelectionRewriteController {
         isBusy = true
 
         let pasteboard = NSPasteboard.general
-        let saved = pasteboard.string(forType: .string)
+        let saved = RewriteClipboardSnapshot(pasteboard)
         let beforeCount = pasteboard.changeCount
+        let destination = RewriteDestinationGuard()
 
         Task { @MainActor in
+            defer { destination.stop(); isBusy = false }
             // The user is still holding ⌃⌥. Sending ⌘C now would arrive as ⌃⌥⌘C, which is not copy.
             var waited = 0
             while !NSEvent.modifierFlags.intersection([.control, .option]).isEmpty, waited < 20 {
                 try? await Task.sleep(nanoseconds: 50_000_000)
                 waited += 1
             }
+            guard NSEvent.modifierFlags.intersection([.control, .option]).isEmpty,
+                  destination.isCurrent, pasteboard.changeCount == beforeCount else { return }
             Self.synthCmd(keyCode: 8) // ⌘C
             try? await Task.sleep(nanoseconds: 180_000_000)
 
-            defer { isBusy = false }
-            guard pasteboard.changeCount != beforeCount,
-                  let copied = pasteboard.string(forType: .string),
+            let copiedCount = pasteboard.changeCount
+            guard destination.isCurrent, copiedCount != beforeCount else { return }
+            guard let copied = pasteboard.string(forType: .string),
                   !copied.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 RewriteLog.write("actions hotkey: nothing selected")
-                if let saved { pasteboard.clearContents(); pasteboard.setString(saved, forType: .string) }
+                saved.restore(pasteboard, ifUnchanged: copiedCount)
                 return
             }
-            if let saved { pasteboard.clearContents(); pasteboard.setString(saved, forType: .string) }
+            saved.restore(pasteboard, ifUnchanged: copiedCount)
 
             let bundle = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
             let context = SelectionContext(text: copied, bundleIdentifier: bundle)
@@ -2234,51 +2204,60 @@ final class SelectionRewriteController {
         RewriteLog.write("hotkey \(style)")
 
         let pb = NSPasteboard.general
-        let saved = pb.string(forType: .string)
+        let saved = RewriteClipboardSnapshot(pb)
         let beforeCount = pb.changeCount
+        let destination = RewriteDestinationGuard()
         Task { @MainActor in
-            // The user is still holding ⌃⌥ from the hotkey. If we send ⌘C now the OS sees ⌃⌥⌘C
-            // (not copy). Wait for the modifiers to be released first (cap ~1s).
+            defer {
+                destination.stop()
+                isBusy = false
+            }
             var waited = 0
             while !NSEvent.modifierFlags.intersection([.control, .option]).isEmpty, waited < 20 {
                 try? await Task.sleep(nanoseconds: 50_000_000)
                 waited += 1
             }
-            Self.synthCmd(keyCode: 8) // ⌘C
-            try? await Task.sleep(nanoseconds: 180_000_000) // let the copy land
-            guard pb.changeCount != beforeCount,
-                  let copied = pb.string(forType: .string),
-                  !copied.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                RewriteLog.write("hotkey: nothing selected/copied")
-                isBusy = false
+            guard NSEvent.modifierFlags.intersection([.control, .option]).isEmpty,
+                  destination.isCurrent, pb.changeCount == beforeCount else { return }
+            Self.synthCmd(keyCode: 8)
+            try? await Task.sleep(nanoseconds: 180_000_000)
+            let copiedCount = pb.changeCount
+            guard copiedCount != beforeCount else { return }
+            let copied = pb.string(forType: .string)
+            // Restore immediately after copying, not after the potentially slow model call.
+            // If the user interacted meanwhile, clipboard ownership is ambiguous: leave it alone.
+            guard destination.isCurrent else { return }
+            saved.restore(pb, ifUnchanged: copiedCount)
+            let restoredCount = pb.changeCount
+            guard let copied, !copied.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            let outcome = await rewriteText(copied, style)
+            guard !Task.isCancelled, destination.isCurrent,
+                  pb.changeCount == restoredCount else {
+                RewriteLog.write("hotkey: destination or clipboard changed; discarded")
                 return
             }
-            let outcome = await rewriteText(copied, style)
             guard case let .success(result) = outcome, !result.isEmpty else {
                 if case let .failure(error) = outcome {
                     RewriteLog.write("hotkey: failed — \(error.localizedDescription)")
                 } else {
                     RewriteLog.write("hotkey: no rewrite result")
                 }
-                if let saved { pb.clearContents(); pb.setString(saved, forType: .string) }
-                isBusy = false
                 return
             }
             pb.clearContents()
             pb.setString(result, forType: .string)
-            Self.synthCmd(keyCode: 9) // ⌘V — replaces the selection
-            RewriteLog.write("hotkey: pasted \(RewriteLog.text(result))")
-            // Restore the user's clipboard once the paste has been consumed.
+            let writtenCount = pb.changeCount
+            Self.synthCmd(keyCode: 9)
+            RewriteLog.write("hotkey: posted paste \(RewriteLog.text(result))")
             try? await Task.sleep(nanoseconds: 250_000_000)
-            pb.clearContents()
-            if let saved { pb.setString(saved, forType: .string) }
-            isBusy = false
+            saved.restore(pb, ifUnchanged: writtenCount)
         }
     }
 
     /// Post a ⌘+<key> keystroke to the frontmost app.
     private static func synthCmd(keyCode: CGKeyCode) {
         let src = CGEventSource(stateID: .combinedSessionState)
+        src?.userData = SynthesizedEventMarker.userData
         let down = CGEvent(keyboardEventSource: src, virtualKey: keyCode, keyDown: true)
         down?.flags = .maskCommand
         let up = CGEvent(keyboardEventSource: src, virtualKey: keyCode, keyDown: false)
@@ -2707,9 +2686,10 @@ final class SelectionRewriteController {
     @discardableResult
     private static func pasteOverSelection(with newText: String) -> Bool {
         let pasteboard = NSPasteboard.general
-        let saved = pasteboard.string(forType: .string)
+        let saved = RewriteClipboardSnapshot(pasteboard)
         pasteboard.clearContents()
         pasteboard.setString(newText, forType: .string)
+        let writtenCount = pasteboard.changeCount
 
         // Read the field before, so the paste can be checked rather than assumed.
         //
@@ -2737,11 +2717,8 @@ final class SelectionRewriteController {
             RewriteLog.write("paste: posted, unverifiable (no readable focused element)")
         }
 
-        if let saved {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                pasteboard.clearContents()
-                pasteboard.setString(saved, forType: .string)
-            }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            saved.restore(pasteboard, ifUnchanged: writtenCount)
         }
         return landed
     }
@@ -2804,9 +2781,10 @@ final class SelectionRewriteController {
 
         // Tier 2: clipboard paste over the selection (universal).
         let pb = NSPasteboard.general
-        let saved = pb.string(forType: .string)
+        let saved = RewriteClipboardSnapshot(pb)
         pb.clearContents()
         pb.setString(newText, forType: .string)
+        let writtenCount = pb.changeCount
 
         let src = CGEventSource(stateID: .combinedSessionState)
         let vKey: CGKeyCode = 9 // 'v'
@@ -2818,13 +2796,131 @@ final class SelectionRewriteController {
         up?.post(tap: .cghidEventTap)
 
         // Restore the user's clipboard shortly after the paste has been consumed.
-        if let saved {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                pb.clearContents()
-                pb.setString(saved, forType: .string)
-            }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            saved.restore(pb, ifUnchanged: writtenCount)
         }
         return true
+    }
+}
+
+// MARK: - Rewrite transaction safety
+
+/// Copies data, rather than retaining pasteboard items whose owner can disappear after a copy.
+struct RewriteClipboardSnapshot {
+    private let items: [[NSPasteboard.PasteboardType: Data]]
+
+    init(_ pasteboard: NSPasteboard) {
+        self.init(items: pasteboard.pasteboardItems ?? [])
+    }
+
+    init(items: [NSPasteboardItem]) {
+        self.items = items.map { item in
+            var data: [NSPasteboard.PasteboardType: Data] = [:]
+            for type in item.types { data[type] = item.data(forType: type) }
+            return data
+        }
+    }
+
+    func restoration(ifUnchanged expected: Int, currentChangeCount: Int) -> [[NSPasteboard.PasteboardType: Data]]? {
+        currentChangeCount == expected ? items : nil
+    }
+
+    func restore(_ pasteboard: NSPasteboard, ifUnchanged changeCount: Int) {
+        guard let contents = restoration(ifUnchanged: changeCount, currentChangeCount: pasteboard.changeCount) else { return }
+        let copies = contents.map { data in
+            let item = NSPasteboardItem()
+            for (type, value) in data { item.setData(value, forType: type) }
+            return item
+        }
+        pasteboard.clearContents()
+        if !copies.isEmpty { pasteboard.writeObjects(copies) }
+    }
+}
+
+struct RewriteDestinationSnapshot: Equatable {
+    var processID: pid_t
+    var element: AXUIElement?
+    var attributes: [String: CFTypeRef]
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        guard lhs.processID == rhs.processID, lhs.attributes.keys.sorted() == rhs.attributes.keys.sorted() else { return false }
+        switch (lhs.element, rhs.element) {
+        case (nil, nil): break
+        case let (left?, right?): guard CFEqual(left, right) else { return false }
+        default: return false
+        }
+        return lhs.attributes.allSatisfy { key, value in
+            rhs.attributes[key].map { CFEqual(value, $0) } ?? false
+        }
+    }
+}
+
+struct RewriteDestinationState {
+    let original: RewriteDestinationSnapshot?
+    private(set) var invalidated = false
+
+    mutating func invalidate() { invalidated = true }
+
+    func allows(_ current: RewriteDestinationSnapshot?) -> Bool {
+        !invalidated && original != nil && original == current
+    }
+}
+
+/// A delayed keyboard paste belongs to the original selection. User input invalidates it even
+/// when an Electron field exposes no AX selection, or the user switches away and back again.
+@MainActor
+final class RewriteDestinationGuard {
+    private var state = RewriteDestinationState(original: capture())
+    private var globalMonitor: Any?
+    private var localMonitor: Any?
+    private var activationObserver: NSObjectProtocol?
+    init() {
+        let mask: NSEvent.EventTypeMask = [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]
+        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] event in
+            guard event.cgEvent?.getIntegerValueField(.eventSourceUserData) != SynthesizedEventMarker.userData else { return }
+            self?.invalidate()
+        }
+        localMonitor = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
+            guard event.cgEvent?.getIntegerValueField(.eventSourceUserData) != SynthesizedEventMarker.userData else { return event }
+            self?.invalidate()
+            return event
+        }
+        activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.invalidate() }
+        }
+    }
+
+    func invalidate() { state.invalidate() }
+
+    var isCurrent: Bool {
+        globalMonitor != nil && localMonitor != nil && state.allows(Self.capture())
+    }
+
+    private static func capture() -> RewriteDestinationSnapshot? {
+        guard let processID = NSWorkspace.shared.frontmostApplication?.processIdentifier else { return nil }
+        let element = AX.focusedElement()
+        var attributes: [String: CFTypeRef] = [:]
+        if let element {
+            for name in [kAXSelectedTextAttribute, kAXSelectedTextRangeAttribute,
+                         kAXValueAttribute, kAXWindowAttribute] {
+                attributes[name] = AX.copy(element, name)
+            }
+        }
+        let app = AXUIElementCreateApplication(processID)
+        AXUIElementSetMessagingTimeout(app, AX.messagingTimeout)
+        attributes["focusedWindow"] = AX.copy(app, kAXFocusedWindowAttribute)
+        return RewriteDestinationSnapshot(processID: processID, element: element, attributes: attributes)
+    }
+
+    func stop() {
+        if let globalMonitor { NSEvent.removeMonitor(globalMonitor) }
+        if let localMonitor { NSEvent.removeMonitor(localMonitor) }
+        if let activationObserver { NSWorkspace.shared.notificationCenter.removeObserver(activationObserver) }
+        globalMonitor = nil
+        localMonitor = nil
+        activationObserver = nil
     }
 }
 

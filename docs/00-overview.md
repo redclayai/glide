@@ -13,8 +13,10 @@ Glide is an **on-device writing assistant for macOS** with two paths, both accep
 - **Complete** — watch the focused text field across any app, predict a short continuation at the
   cursor with a **local LLM**, and offer it as ghost text. This is the inherited KeyType pipeline
   and the bulk of this document.
-- **Rewrite** — when the user finishes a word, check it and offer a correction as a capsule under
-  the caret. Deterministic, on-device, no model. See *The rewrite path* below.
+- **Rewrite** — check spelling after a word and grammar after a pause, offering a correction under
+  the caret. Spelling uses the on-device dictionary; grammar uses the local model by default,
+  or an explicitly configured Claude/Gemini backend. Selection actions also support rewrites.
+  See *The rewrite path* below.
 
 Glide is a fork of **KeyType** by Xi Nai Lai (MIT), itself an alternative to the closed-source app
 *Cotypist*. Everything in docs 01–03 and 06–09 describes KeyType's completion pipeline unchanged.
@@ -118,7 +120,10 @@ decoding that `CompletionController` exists to manage.
   offered Tab first and the rewrite only sees the key when completion has nothing to accept
   (ADR-106).
 
-Planned, not built: model-backed sentence rewrite, a tone palette, and reply assist.
+Model-backed sentence grammar and selection actions are implemented. Selection actions include
+polishing, grammar, tone changes, summarization, and custom prompts. Claude and Gemini are optional
+backends configured with the user's API key; choosing either sends rewrite text to that provider.
+Autocomplete and dictionary spelling remain local. Reply assist remains a future direction.
 
 For the current set of open improvement themes (vs. the completed build milestones), see
 `04-roadmap.md`.

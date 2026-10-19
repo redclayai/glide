@@ -8,7 +8,7 @@
 
 import CoreGraphics
 import Testing
-@testable import KeyType
+@testable import Glide
 
 struct OnboardingAndKeybindTests {
 
